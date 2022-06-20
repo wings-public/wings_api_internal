@@ -1,0 +1,40 @@
+{
+"FAMILY" : {
+              "_comment" : "This structure will group each relation based on the chosen criteria .If  there are mutiple rows for a sibling, then it will be OR and grouped as an array.multiple samples in a single rule will be OR filter.multiple rules-each having one relation will be AND filer",
+              "Filter" : "$AND",
+              "relations" : ["s1"],
+               "s1" : {
+                            "join" : "and",
+                            "sid" : [5759, 5760],
+                            "conditions" : {
+                                             "5759" : {"gt":[0,1,2],
+                                                      "Match" : 1 },
+                                             "5760" : { "gt" : [0,1,2],
+                                                       "Match" : 1 }
+                                            }
+                     }
+
+            },
+"LOGICAL_FILTERS" : {
+                        "filter_levels" : [
+                                              { "filter" : "$or",
+                                                "conditions" : ["read_pos_ranksum:$gt:0.1:float"],
+                                                "cumulate" : "no",
+                                                "tag" : "na",
+                                                "_comment" : "inner most logical condition.level1"
+                                              },
+                                              { "filter" : "$or",
+                                                "conditions" : ["alt_cnt:$eq:any_genotype:int"],
+                                                "cumulate" : "yes",
+                                                "tag" : "na",
+                                                "_comment" : "level2. (+ level1)"
+                                              },
+                                              { "filter" : "$or",
+                                                "conditions" : ["phred_genotype:$gt:90:int"],
+                                                "cumulate" : "yes",
+                                                "tag" : "db",
+                                                "_comment" : "level3. (+level2 (+level1) ). tag:db which cumulates previous conditions gets added to mongodb clause"
+                                              }
+                                          ]
+                     }
+}

@@ -1,0 +1,9 @@
+
+node sampleFilterQuery.js --sid 159142 --count 1 --count_input '{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "fail" , "leaf" : 0 },{ "c" : {"gene_annotations.consequence_terms" : {"$eq" : "intron_variant"} } , "type" : "pass" , "leaf" : 1 } ] }'
+
+
+node sampleFilterQuery.js --sid 159142 --count 1 --count_input '{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "fail" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 } ] }'
+
+node sampleFilterQuery.js --sid 159142 --count 1 --count_input '{ "condition" : [ { "c" : {"sid" : {"$eq" : 159142}  } , "type" : "pass", "leaf":1 } ] }'
+
+node sampleFilterQuery.js --sid 159142 --count 1 --count_input '{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AF_all" : {"$eq" : null} } , "type" : "pass" , "leaf" : 0 } , {"c" : {"phred_score" : {"$gt" : 2.3}  } , "type" : "pass", "leaf":1}] }'

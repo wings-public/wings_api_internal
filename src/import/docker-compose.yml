@@ -1,0 +1,35 @@
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv2","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Args":["--cache","--offline","--json","--assembly","GRCh38","--dir_cache","/opt/vep/.vep/","--dir_plugins","/opt/vep/.vep/Plugins/","-i","/opt/vep/.vep/input/929_hg38.vcf","-o","/opt/vep/.vep/output/config_annotations_8.json","--fasta","/opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz","--species","homo_sapiens","--plugin","CSN"], "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] },"RestartPolicy": {"Condition": "on-failure", "Delay": 5000,"MaxAttempts": 1},"LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"}} } }'
+
+
+docker run  -v /mnt/data/annotations/cadd:/cadd/dependencies -it variantdb/caddsetup:n3 ./CADD_v1.5/CADD.sh -a -g GRCh38 -v v1.5 -o testCadd1.tsv.gz ./CADD_v1.5/test/input.vcf
+
+// file has to be deployed by swarm master
+// ESAT will inform master to deploy the docker stack
+// ESAT ----> Swarm Master
+
+version: "3"
+services:
+  vep:
+    image: ensemblorg/ensembl-vep:latest
+    volumes:
+      - "/mnt/data/vep_data:/opt/vep/.vep"
+    deploy:
+      placement:
+        constraints: [node.role == worker]
+        restart_policy:
+          condition: on-failure
+          Delay: 5000
+          MaxAttempts: 1
+    command: ./vep --cache --offline --json --assembly GRCh38 --dir_cache /opt/vep/.vep --dir_plugins /opt/vep/.vep/Plugins -i /opt/vep/.vep/input/929_hg38.vcf -o /opt/vep/.vep/output/config_annotations_9.json --fasta /opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz --species homo_sapiens --plugin CSN
+  cadd:
+    image: variantdb/caddsetup:n3
+    volumes:
+      - "/mnt/data/annotations/cadd:/cadd/dependencies"
+    deploy:
+      placement:
+        constraints: [node.role == worker]
+        restart_policy:
+          condition: on-failure
+          Delay: 5000
+          MaxAttempts: 1
+    command: ./CADD_v1.5/CADD.sh -a -g GRCh38 -v v1.5 -o testCadd1.tsv.gz ./CADD_v1.5/test/input.vcf

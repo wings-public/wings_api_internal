@@ -1,0 +1,1 @@
+db.getCollection('wingsVcfData').aggregate([{$match: {sid: {$eq:930 }}},   {$lookup: { from: "variantAnnotations",localField: "var_key",foreignField: "_id", as: "annotation_data"     }   } ])

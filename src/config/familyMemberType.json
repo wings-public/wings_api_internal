@@ -1,0 +1,37 @@
+{
+    "pedigreeConf" : {
+        "familyMemberType" : {
+            "Proband" :   { "store" : {"FamilyMemberTypeName" : "Proband", "Node_Key" : 2},
+                            "show" : {"FamilyMemberTypeID" : 15, "Family_side" : -1} }, 
+            "Father" : { "show" : { "FamilyMemberTypeID" : 1, "Family_side" : 0 } },
+            "Mother" : { "show" : { "FamilyMemberTypeID" : 2, "Family_side" : 0 } },
+            "Spouse" : { "show" : { "FamilyMemberTypeID" : 16, "Family_side" : 0 } },
+            "Brother" : { "show" : { "FamilyMemberTypeID" : 3, "Family_side" : 0 } },
+            "Sister" : { "show" : { "FamilyMemberTypeID" : 4, "Family_side" : 0 } },
+            "Son" : { "show" : { "FamilyMemberTypeID" : 5, "Family_side" : 0 } },
+            "Daughter" : { "show" : { "FamilyMemberTypeID" : 6, "Family_side" : 0 } },
+            "Maternal Uncle" : { "show" : { "FamilyMemberTypeID" : 7, "Family_side" : 1 } },
+            "Maternal Aunt" : { "show" : { "FamilyMemberTypeID" : 8, "Family_side" : 1 } },
+            "Paternal Uncle" : { "show" : { "FamilyMemberTypeID" : 9, "Family_side" : 2 } },
+            "Paternal Aunt" : { "show" : { "FamilyMemberTypeID" : 10, "Family_side" : 2 } },
+            "Paternal Grandfather" : { "show" : { "FamilyMemberTypeID" : 11, "Family_side" : 2 } },
+            "Paternal Grandmother" : { "show" : { "FamilyMemberTypeID" : 12, "Family_side" : 2 } },
+            "Maternal Grandfather" : { "show" : { "FamilyMemberTypeID" : 13, "Family_side" : 1 } },
+            "Maternal Grandmother" : { "show" : { "FamilyMemberTypeID" : 14, "Family_side" : 1 } }
+        },
+        "defaultPhenoSetup" : {
+            "Disease_TL" : null,
+            "Code_TL" : null,
+            "Disease_TR" : null,
+            "Code_TR" : null,
+            "Disease_BL" : null,
+            "Code_BL" : null,
+            "Disease_BR" : null,
+            "Code_BR" : null,
+            "Hex_BR" : null,
+            "Hex_BL" : null,
+            "Hex_TR" : null,
+            "Hex_TL" : null
+        }
+    }
+}

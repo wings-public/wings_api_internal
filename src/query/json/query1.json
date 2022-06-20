@@ -1,0 +1,81 @@
+{
+   "ClinVar_Class " : "CLNSIG",
+   "Cadd_Score" : "phred_score",
+   "Zygosity" : "alt_cnt",
+   "Effect" : "gene_annotations.consequence_terms",
+   "Call_Status_Filter" : "filter",
+   "Call_Status_Mutation_Type" : "v_type",
+   "Allele_Frequencies_gnomAD_frequency" : "gnomAD.AF_all",
+   "chromosome" : "chr",
+   "start_pos" : "start_pos",
+   "stop_pos" : "stop_pos"
+}
+
+{ "filters" : [ { "c" : { "field" : "Effect" , "rule" : { "$eq" : "synonymous_variant" },"type" : "pass" } },
+                { "c" : { "field" : "chr" , "rule" : { "$eq" : 2 } , "type" : "pass" } },
+                { "c" : { "field" : "chr" , "rule" : { "$eq" : 6 } , "add_rule_pos" : { "start_pos" : 211765 , "stop_pos" : 211765 }, "type" : "pass" } },
+                { "c" : { "field" : "Cadd_Score" , "rule" : { "$gt" : 3 } , "type" : "pass" } },
+                { "c" : { "field" : "Zygosity" , "rule" : { "$eq" : "het" } , "type" : "pass" } },
+                { "c" : { "field" : "Call_Status_Filter" , "rule" : { "$eq" : "PASS" } , "type" : "pass" } },
+                { "c" : { "field" : "Call_Status_Mutation_Type" , "rule" : { "$eq" : "snv" } , "type" : "fail" } },
+                { "c" : { "field" : "ClinVar_Class" , "rule" : { "$eq" : "Benign" } , "type" : "pass" } }
+              ],
+   "invoke_type" : "sample_variant",
+   "sid" : 11236,
+   "batch_range" : 1000,
+   "output_columns" : ""
+} 
+
+
+{ "invoke_type" : "chromosome_regions",
+  "output_columns" : "",
+  "batch_range" : 100,
+  "filters" : [ { "c" : { "chromosome" : { "equal" : 2 } , "start_pos" : { "equal" : 8963418 } , "stop_pos" : { "equal" : 8963418 } }, "type" : "pass" },
+              { "c" : { "chromosome" : { "equal" : 2 } , "start_pos" : { "equal" : 8963418 } , "stop_pos" : { "equal" : 8963418 } }, "type" : "pass" } ]
+}
+
+
+{ "invoke_type" : "chromosome_regions",
+  "output_columns" : "",
+  "batch_range" : 100,
+  "filters" : [ { "c" : { "chromosome" : { "equal" : 2 } , "start_pos" : { "equal" : 8963418 } , "stop_pos" : { "equal" : 8963418 } }, "type" : "pass" }]
+}
+
+
+{ "condition" : [ { "c" : { "field" : "Effect" , "rule" : { "$eq" : "synonymous_variant" },"type" : "pass" , "leaf" : 0} },
+                { "c" : { "field" : "Cadd_Score" , "rule" : { "$gt" : 3 } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "chr" , "rule" : { "$eq" : "3" } , "add_rule_pos" : { "start_pos" : 53186199 , "stop_pos" : 53186199 }, "type" : "pass" , "leaf" : 0} },
+                { "c" : { "field" : "Zygosity" , "rule" : { "$eq" : "het" } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "Call_Status_Filter" , "rule" : { "$eq" : "PASS" } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "Call_Status_Mutation_Type" , "rule" : { "$eq" : "ins" } , "type" : "fail" , "leaf" : 0} },
+                { "c" : { "field" : "ClinVar_Class" , "rule" : { "$eq" : "Benign" } , "type" : "pass" , "leaf":0} }
+              ],
+   "invoke_type" : "get_count",
+   "sid" : 11236
+}
+
+
+{   "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 } ],
+   "invoke_type" : "get_count",
+   "sid" : 11236 
+}
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },
+                  { "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "fail" , "leaf" : 0 },
+                  { "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 }
+                ]
+}
+
+
+{ "condition" : [ { "c" : {"sid" : {"$eq" : 159142}  } , "type" : "pass", "leaf":1 } ] }
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 } ] }
+
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 0 } , {"c" : {"phred_score" : {"$gt" : 2.3}  } , "type" : "pass", "leaf":1}] }
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AF_all" : {"$eq" : null} } , "type" : "pass" , "leaf" : 0 } , {"c" : {"phred_score" : {"$gt" : 2.3}  } , "type" : "pass", "leaf":1}] }

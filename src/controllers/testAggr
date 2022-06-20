@@ -1,0 +1,1 @@
+db.wingsVcfData.aggregate( [ { $match: {"sid":{$in: [11232, 11233,11236] }}}, {$group : {_id:"$var_key", total: {$sum:1 } } } ] )

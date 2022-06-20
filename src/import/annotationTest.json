@@ -1,0 +1,108 @@
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv4","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep -i /opt/vep/.vep/input/929_hg38.vcf -o /opt/vep/.vep/output/config_annotations_6.json"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }],"Hosts": ["143.169.238.50 host1"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep --cache --offline --json --assembly GRCh38 --dir_cache /opt/vep/.vep/ --dir_plugins /opt/vep/.vep/Plugins/ -i /opt/vep/.vep/input/929_hg38.vcf -o /opt/vep/.vep/output/config_annotations_6.json --fasta  /opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz --species homo_sapiens --plugin CSN"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }],"Hosts": ["143.169.238.50 host1"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+// ******************** SERVICE CREATION ************************************
+// Each argument added as a separate element in the array
+// Double quote the argument
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv2","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Args":["--cache","--offline","--json","--assembly","GRCh38","--dir_cache","/opt/vep/.vep/","--dir_plugins","/opt/vep/.vep/Plugins/","-i","/opt/vep/.vep/input/929_hg38.vcf","-o","/opt/vep/.vep/output/config_annotations_8.json","--fasta","/opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz","--species","homo_sapiens","--plugin","CSN"], "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+// Output : Service ID
+// {"ID":"qje23oscrvwhfojn17bv7ax7y"}
+
+// *******************************************************************************
+
+
+// SERVICE CREATION WITH RESTART POLICY //
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv2","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Args":["--cache","--offline","--json","--assembly","GRCh38","--dir_cache","/opt/vep/.vep/","--dir_plugins","/opt/vep/.vep/Plugins/","-i","/opt/vep/.vep/input/929_hg38.vcf","-o","/opt/vep/.vep/output/config_annotations_8.json","--fasta","/opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz","--species","homo_sapiens","--plugin","CSN"], "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] },"RestartPolicy": {"Condition": "on-failure", "Delay": 5000,"MaxAttempts": 1},"LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"}} } }'
+{"ID":"6scfc0080cghas2wpxhajiu68"}
+// *****************************************************************************************//
+// creating vep service with constraint
+
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Role == worker"] } }'
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep > /opt/vep/.vep/output/testRun"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Role == worker"] } }'
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep > /opt/vep/.vep/output/testRun"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] } }'
+
+
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] } }'
+
+curl 'http://143.169.238.132:2376/services/create'  -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] },"RestartPolicy" : { "Condition" : "on-failure", "MaxAttempts":1 } }'
+
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep","Command": ["./vep > /opt/vep/.vep/output/testRun"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] } }'
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Cmd": ["./vep > /opt/vep/.vep/output/testRun"],"Mounts": [{"Source": "vep_volume","Target": "/opt/vep/.vep","Type": "volume" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] } }'
+
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Cmd": ["ls /opt/vep/.vep/input/929_hg38.vcf"],"Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : { "Constraints": [ "node.Name == wings-server" ] } }'
+
+//service creation with restriction on max attempts and restart policy
+
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] ,"Command": ["./vep > /opt/vep/.vep/output/testRun"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] ,"Command": ["./vep --cache --offline --json --assembly GRCh38 --dir_cache /opt/vep/.vep/ --dir_plugins /opt/vep/.vep/Plugins/ -i /opt/vep/.vep/input/929_hg38.vcf -o /opt/vep/.vep/output/config_data.json --fasta  /opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz --species homo_sapiens --plugin CSN"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] ,"Command": ["perl INSTALL.pl"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] ,"Command": ["echo hello > /opt/vep/.vep/output/testRun"] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+curl 'http://143.169.238.50:5555/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} } }'
+
+curl 'http://143.169.238.50:5555/services/x4nkbcbfua22ckexy50l09t0x/update' -X POST -d '{"Name": "vep_serv" , "TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest" , "Args" : ["echo hello > /opt/vep/.vep/output/testRun"] , "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }]} } }'
+
+curl 'http://143.169.238.50:5555/services/x4nkbcbfua22ckexy50l09t0x/update?version=4347' -X POST -d '{"Name": "vep_serv" , "TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest" , "Args" : ["echo hello > /opt/vep/.vep/output/testRun"] , "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }]} } }'
+
+curl 'http://143.169.238.50:5555/containers/create' -X POST -d '{"Image":"ensemblorg/ensembl-vep:latest", }'
+
+curl 'http://143.169.238.132:2376/services/create' -X POST -d '{"Name": "vep_serv","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] } }, "LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"} }, "Placement" : [{ "Constraints": "Spec.Name == wings-server"  }],"RestartPolicy" : { "Condition" : "on-failure", "MaximumRetryCount":0,"MaxAttempts":1 } }'
+
+curl -X GET http://143.169.238.50:5555/services?insertDefaults=true | json_pp
+
+
+
+}
+  "UpdateConfig": {
+    "Parallelism": 2,
+    "Delay": 1000000000,
+    "FailureAction": "pause",
+    "Monitor": 15000000000,
+    "MaxFailureRatio": 0.15
+  },
+  "RollbackConfig": {
+    "Parallelism": 1,
+    "Delay": 1000000000,
+    "FailureAction": "pause",
+    "Monitor": 15000000000,
+    "MaxFailureRatio": 0.15
+  },
+  "EndpointSpec": {
+    "Ports": [
+      {
+        "Protocol": "tcp",
+        "PublishedPort": 8080,
+        "TargetPort": 80
+      }
+    ]
+  }
+}
+
+
+{"Name": "vep_serv1","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": "echo 1","Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "volume" }],"Hosts": ["143.169.238.50 host1"] }} }
+
+
+
+
+
+
+
+{"Name": "vep_serv2","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Args":["--cache","--offline","--json","--assembly","GRCh38","--dir_cache","/opt/vep/.vep/","--dir_plugins","/opt/vep/.vep/Plugins/","-i","/opt/vep/.vep/input/929_hg38.vcf","-o","/opt/vep/.vep/output/config_annotations_8.json","--fasta","/opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz","--species","homo_sapiens","--plugin","CSN"], "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] },"RestartPolicy": {"Condition": "on-failure", "Delay": 5000,"MaxAttempts": 1},"LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"}} } }'
+
+
+{"Name": "vep_serv2","TaskTemplate": {"ContainerSpec": {"Image": "ensemblorg/ensembl-vep:latest","Command": ["./vep"],"Args":["--cache","--offline","--json","--assembly","GRCh38","--dir_cache","/opt/vep/.vep/","--dir_plugins","/opt/vep/.vep/Plugins/","-i","/opt/vep/.vep/input/929_hg38.vcf","-o","/opt/vep/.vep/output/config_annotations_8.json","--fasta","/opt/vep/.vep/homo_sapiens/97_GRCh38/Homo_sapiens.GRCh38.dna.toplevel.fa.gz","--species","homo_sapiens","--plugin","CSN"], "Mounts": [{"Source": "/mnt/data/vep_data","Target": "/opt/vep/.vep","Type": "bind" }] },"RestartPolicy": {"Condition": "on-failure", "Delay": 5000,"MaxAttempts": 1},"LogDriver": {"Name": "json-file","Options": {"max-file": "3","max-size": "10M"}},"Placement" : { "Constraints": [ "node.Role == worker"] } } }'

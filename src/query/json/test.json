@@ -1,0 +1,4 @@
+{ "fail" : { "v_type" : {"$eq" : "snv"} },
+  "pass" : { "gt_ratio" : {"$gt" : "0.5" } },
+  "cumulate" : 1
+}

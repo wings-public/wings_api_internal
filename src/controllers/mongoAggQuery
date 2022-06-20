@@ -1,0 +1,72 @@
+//Approach 1 
+  db.family.aggregate([
+  {
+      $match: { _id :  110002399436 }
+  },
+  {
+     $lookup :
+	 {
+	    from: "Individuals",
+		localField: "relatives.ID",
+		foreignField: "_id",
+		as: "relative_data"
+	 }
+  },
+  { $unwind : { path : "$relative_data" } 
+  },
+  {
+  $match : { "relative_data._id" : { $ne : 30002399431 } }
+  },
+  { $project : { 'relatives' : 1, 'relative_data' : 1 } }
+  ]);
+  
+  
+  // Approach 2
+  db.family.aggregate([
+  {
+      $match: { _id :  110002399436 }
+  },
+  {
+     $lookup :
+	 {
+	    from: "Individuals",
+		localField: "relatives.ID",
+		foreignField: "_id",
+		as: "relative_data"
+	 }
+  },
+  { $unwind : { path : "$relatives" } },
+  { $unwind : { path : "$relative_data" } 
+  },
+  {
+  $match : { "relative_data._id" : { $ne : 30002399431 } }
+  },
+  { $project : { 'relative_data' : 1, 'relatives' : { $filter : { "input" : ["$relatives", "$relative_data" ] , cond: { $eq: [ "$relatives.ID", "$relative_data._id" ]  }} }  } }
+  ]);
+ 
+ 
+ // Approach 3 
+ 
+    db.family.aggregate([
+  {
+      $match: { _id :  110002399436 }
+  },
+  {
+     $lookup :
+	 {
+	    from: "Individuals",
+		localField: "relatives.ID",
+		foreignField: "_id",
+		as: "relative_data"
+	 }
+  },
+  { $unwind : "$relatives" },
+  { $unwind : { path : "$relative_data" } 
+  },
+  {
+  $match : { "relative_data._id" : { $ne : 30002399431 } }
+  },
+  { $project : { '_id': 0, 'relatives.memberType' : 1 , 'relatives.ID' : 1, 'relatives.FamilySide' : 1, 'relative_data.Affected' : 1, "isMatch" : {  "$cond" : [ { "$eq" : ["$relatives.ID", "$relative_data._id" ]} , 1 , 0 ] } } }, 
+  { $match: { "isMatch" : 1 } }
+  ]);
+  

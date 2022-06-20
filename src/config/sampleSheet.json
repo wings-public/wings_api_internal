@@ -1,0 +1,25 @@
+{
+    "required_fields" : ["piName","fileLoc","fileType","desc","assemblyType","sLocalID","indLocalID","sampleType","seqMc","seqMod","seqCov","seqType","readLgt","seqDate"],
+    "optional_fields" : ["panelName","indFName","indLName","indGender","indDOB"],
+    "validation" : {
+                     "piName" : {"csv_field" : "PIName","data_type" : "char"},
+                     "desc" : {"csv_field": "Description", "data_type" : "freetext"},
+                     "fileLoc" : {"csv_field" : "FileLocation","data_type" : "location"},
+                     "fileType" : {"csv_field" : "FileType","allowed_values" : ["VCF","VCF INDEX","gVCF","gVCF INDEX","BAM","BAM INDEX","CRAM","CRAM INDEX","FASTQ","FASTQ F","FASTQ R"] },
+                     "sLocalID" : {"csv_field": "SampleLocalID", "data_type" : "varchar"},
+                     "indLocalID" : {"csv_field": "IndLocalID", "data_type" : "varchar"},
+                     "assemblyType" : {"csv_field" : "AssemblyType" , "allowed_values" : ["hg19","hg38","GRCh37","GRCh38"]},
+                     "sampleType" : {"csv_field": "SampleTypeName", "allowed_values" : ["Research","Diagnostics"]},
+                     "seqMc" : { "csv_field": "SeqMachineName","data_type" : "varchar"},
+                     "seqMod" : { "csv_field" : "SeqKitModelName", "data_type" : "varchar"},
+                     "seqCov" : { "csv_field" : "SeqTargetCov" , "data_type" : "number"},
+                     "seqType" : { "csv_field" : "SeqTypeName", "allowed_values" : ["WES","WGS","PANEL"]},
+                     "panelName" : { "csv_field" : "PanelTypeName", "dependency" : ["Cancer","test"] },
+                     "readLgt" : { "csv_field" : "SeqTargetReadLen", "data_type" : "number"},
+                     "seqDate" : { "csv_field" : "SeqDate", "data_type" : "date"},
+                     "indFName" : { "csv_field" : "IndividualFName" , "data_type" : "char"},
+                     "indLName" : { "csv_field" : "IndividualLName", "data_type" : "char"},
+                     "indGender" : { "csv_field" : "IndividualSex", "allowed_values" : ["Male","Female","Unknown"]},
+                     "indDOB" : { "csv_field" : "IndividualBirthDate", "data_type" : "date"}
+                   }
+}

@@ -1,0 +1,12 @@
+{ "filters" : [ { "c" : { "field" : "Effect" , "rule" : { "$in" : ["synonymous_variant","intron_variant"] },"type" : "pass" } },
+                { "c" : { "field" : "Cadd_Score" , "rule" : { "$gt" : 3 } , "type" : "pass" } },
+                { "c" : { "field" : "Zygosity" , "rule" : { "$eq" : "het" } , "type" : "pass" } },
+                { "c" : { "field" : "Call_Status_Filter" , "rule" : { "$eq" : "PASS" } , "type" : "pass" } },
+                { "c" : { "field" : "Call_Status_Mutation_Type" , "rule" : { "$eq" : "ins" } , "type" : "fail" } },
+                { "c" : { "field" : "ClinVar_Class" , "rule" : { "$eq" : "Benign" } , "type" : "pass" } }
+              ],
+   "invoke_type" : "sample_variant",
+   "sid" : 161619,
+   "batch_range" : 100,
+   "output_columns" : { "sid" :1 , "chr":1, "start_pos":1 , "stop_pos":1 , "phred_score" : 1, "alt_cnt" : 1 , "gene_annotations" : 1 }
+} 

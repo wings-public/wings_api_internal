@@ -1,0 +1,8 @@
+{ "condition" : [ { "c" : { "field" : "Call_Status_Mutation_Type" , "rule" : { "$eq" : "snv" },"type" : "pass" , "leaf" : 0} },
+                { "c" : { "field" : "gt_ratio" , "rule" : { "$gt" : 0.5 } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "Allele_Number_gnomAD" , "rule" : { "$gt" : 20000 } , "type" : "pass" , "leaf" : 1} }
+              ],
+   "invoke_type" : "get_count",
+   "sid" : 161619
+}
+

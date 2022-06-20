@@ -1,0 +1,11 @@
+{ "condition" : [ { "c" : { "field" : "Effect" , "rule" : { "$eq" : "synonymous_variant" },"type" : "pass" , "leaf" : 0} },
+                { "c" : { "field" : "Cadd_Score" , "rule" : { "$gt" : 3 } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "chr" , "rule" : { "$eq" : "3" } , "add_rule_pos" : { "start_pos" : 53186199 , "stop_pos" : 53186199 }, "type" : "pass" , "leaf" : 0} },
+                { "c" : { "field" : "Zygosity" , "rule" : { "$eq" : "het" } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "Call_Status_Filter" , "rule" : { "$eq" : "PASS" } , "type" : "pass" , "leaf":0} },
+                { "c" : { "field" : "Call_Status_Mutation_Type" , "rule" : { "$eq" : "ins" } , "type" : "fail" , "leaf" : 0} },
+                { "c" : { "field" : "ClinVar_Class" , "rule" : { "$eq" : "Benign" } , "type" : "pass" , "leaf":1} }
+              ], 
+   "invoke_type" : "get_count",
+   "sid" : 11236
+}

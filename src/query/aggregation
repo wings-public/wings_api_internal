@@ -1,0 +1,79 @@
+Type I
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438] } } },   { $group: { _id: {sid:"$sid",vid: "$vid"} } }] );
+
+
+type II
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438] } } },   { $group: { _id: {vid: "$vid"}, count: {$sum: 1} } }  , {$match : {count: {"$gt" : 9} } }] );
+
+typeIII
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438] } } },   { $group: { _id: {sid:"$sid",vid: "$vid"} } } , {$match : { $and : [{'sid':105},{'sid':111},{'sid':135},{'sid':136},{'sid':137},{'sid':139},{'sid':208},{'sid':298},{'sid':303},{'sid':438}]} }] );
+
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438] } } },   { $group: { _id: {vid: "$vid"}, count: {$sum: 1} } }  , {$match : {count: {"$gt" : 9} } }] );
+
+
+
+aggregation, allow disk for genome samples and explain option has been set
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [18310,18317] } } },   { $group: { _id: {vid: "$vid"}, count: {$sum: 1} } }  , {$match : {count: {"$gte" : 2} } }], {allowDiskUse:true, explain:true} )
+
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139] } } },   { $group: { _id: {sid:"$sid",vid: "$vid"}, "Aggsid":{$max:"$sid"} } }, {$match : {'Aggsid': {$in:[105,111] } }  } ] )
+
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139] } } },   { $group: { _id: {sid:"$sid",vid: "$vid"}, "Aggsid":{$max:"$sid"} } },{$out : "match_group" }   ] )
+
+
+
+# Creating an array of samples belonging to each Variant ID
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139] } } },   { $group: { _id:  "$vid", sid:{$max:"$sid"}, vid_sid: { $push: {_id:"$id",sid:"$sid" } } } },{$out : "match_group" }   ],{allowDiskUse:true} )
+
+# without the additional sid column
+Option 1 Aggregation
+--------------------
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139] } } },   { $group: { _id:  "$vid", vid_sid: { $push: {_id:"$id",sid:"$sid" } } } },{$out : "match_group" }   ],{allowDiskUse:true} )
+
+db.match_group.find({'$or': [ {'vid_sid.sid':18328},{'vid_sid.sid':135},{'vid_sid.sid':139},{'vid_sid.sid':105} ] })
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438,460, 466, 497, 1513, 1908, 1954, 1960, 1971, 2005, 2042, 2043, 2044,2045,138] } } },   { $group: { _id:  "$vid", vid_sid: { $push: {_id:"$id",sid:"$sid" } } } },{$out : "match_group" }   ],{allowDiskUse:true} )
+
+db.match_group.find({'$and': [{'$or':[{'vid_sid.sid':2045} ] },{ '$and' : [{'vid_sid.sid':105},{'vid_sid.sid':111},{'vid_sid.sid':135},{'vid_sid.sid':136},{'vid_sid.sid':137},{'vid_sid.sid':139},{'vid_sid.sid':208},{'vid_sid.sid':298},{'vid_sid.sid':303},{'vid_sid.sid':438}   ]  }, {'$or':[{'vid_sid.sid':460},{'vid_sid.sid':466},{'vid_sid.sid':497},{'vid_sid.sid':1513},{'vid_sid.sid':1908},{'vid_sid.sid':1954},{'vid_sid.sid':1960},{'vid_sid.sid':1971},{'vid_sid.sid':2005},{'vid_sid.sid':2042},{'vid_sid.sid':2043},{'vid_sid.sid':2044} ] },{'$or':[{'vid_sid.sid':138 }] } ] })
+
+
+db.match_group.find({'$and': [{'$or':[{'vid_sid.sid':2045} ] },{ '$and' : [{'vid_sid.sid':105},{'vid_sid.sid':111},{'vid_sid.sid':135},{'vid_sid.sid':136},{'vid_sid.sid':137},{'vid_sid.sid':139},{'vid_sid.sid':208},{'vid_sid.sid':298},{'vid_sid.sid':303},{'vid_sid.sid':438}   ]  }, {'$and':[{'vid_sid.sid':460},{'vid_sid.sid':466},{'vid_sid.sid':497},{'vid_sid.sid':1513},{'vid_sid.sid':1908},{'vid_sid.sid':1954},{'vid_sid.sid':1960},{'vid_sid.sid':1971},{'vid_sid.sid':2005},{'vid_sid.sid':2042},{'vid_sid.sid':2043},{'vid_sid.sid':2044} ] },{'$and':[{'vid_sid.sid':138 }] } ] },{'vid_sid':0})
+
+------------------------
+Aggregation-Genotype
+-----------------------
+
+-- vid, Alt_Count is part of the id key
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438,460, 466, 497, 1513, 1908, 1954, 1960, 1971, 2005, 2042, 2043, 2044,2045,138] } } },   { $group: { _id: {vid:"$vid",Alt_Count:"$Alt_Count"}, vid_sid: { $push: {_id:"$id",sid:"$sid" } } } },{$out : "match_group_test_1" }   ],{allowDiskUse:true} )
+
+-- Query for heterozygous variants which are present in the samples below
+
+db.match_group_test_1.find({'_id.Alt_Count':1,'$and': [{'$or':[{'vid_sid.sid':2045} ] },{ '$and' : [{'vid_sid.sid':105},{'vid_sid.sid':111},{'vid_sid.sid':135},{'vid_sid.sid':136},{'vid_sid.sid':137},{'vid_sid.sid':139},{'vid_sid.sid':208},{'vid_sid.sid':298},{'vid_sid.sid':303},{'vid_sid.sid':438}   ]  }, {'$and':[{'vid_sid.sid':460},{'vid_sid.sid':466},{'vid_sid.sid':497},{'vid_sid.sid':1513},{'vid_sid.sid':1908},{'vid_sid.sid':1954},{'vid_sid.sid':1960},{'vid_sid.sid':1971},{'vid_sid.sid':2005},{'vid_sid.sid':2042},{'vid_sid.sid':2043},{'vid_sid.sid':2044} ] },{'$and':[{'vid_sid.sid':138 }] } ] },{'vid_sid':0})
+
+------------------------
+Genome Aggregation
+------------------------
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [18313,18314,18315] } } },   { $group: { _id:  "$vid", vid_sid: { $push: {_id:"$id",sid:"$sid" } } } },{$out : "match_group_genome" }   ],{allowDiskUse:true} )
+# Time consumed ? ~ 1 min to aggregate and create a collection
+# ~ 3 min for 4 genome samples aggregation
+
+db.match_group_genome.find({'$and': [{'vid_sid.sid':18313},{'vid_sid.sid':18314},{'vid_sid.sid':18315}] } )
+
+-- aggregation with Alt_Count added
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [18313,18314,18315] } } },   { $group: { _id:  {vid:"$vid",Alt_Count:"$Alt_Count"}, vid_sid: { $push: {sid:"$sid" } } } },{$out : "match_group_genome" }   ],{allowDiskUse:true} )
+
+Option2 Aggregation
+--------------------
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [105, 111, 135, 136, 137, 139, 208, 298, 303, 438] } } },   { $group: { _id: {vid: "$vid"}, count: {$sum: 1} } }  , {$match : {count: {"$gt" : 9} } }] );
+
+# Option2 aggregation for genome samples : ~ 3 min
+
+db.variantSamplesQuery.aggregate( [   { $match: { sid: { $in: [18310,18311,18316,18319] } } },   { $group: { _id: {vid: "$vid"}, count: {$sum: 1} } }  , {$match : {count: {"$gt" : 3} } }],{allowDiskUse:true} );

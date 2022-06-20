@@ -1,0 +1,222 @@
+// config.js
+var path = require('path');
+//var data = require('dotenv').config();
+//console.dir(data,{"depth":null});
+
+// custom path to retrieve the vars related to environment
+
+var envPath = path.join(__dirname,'.env');
+//var dataConfig = require('dotenv').config({path:__dirname+'/.env'});
+var dataConfig = require('dotenv').config({path : envPath});
+
+const env = process.env.NODE_ENV; // 'dev' or 'test'
+console.log("Environment being set is "+env);
+
+const dev = {
+ app: {
+   instance : env,
+   expressPort : parseInt(process.env.DEV_EXPRESS_APP_PORT) || 8081,
+   privkey : process.env.DEV_PRIV_KEY || '',
+   cert : process.env.DEV_CERT || '',
+   certAuth : process.env.DEV_CA || '',
+   importQCnt : process.env.IMPORT_Q_CNT || 2,
+   trioQCnt : process.env.TRIO_Q_CNT || 2,
+   sampleSheet : process.env.SAMPLE_SHEET_LOC || '',
+   centerName : process.env.CENTER_NAME || 'Unknown',
+   releaseNum : process.env.RELEASE || 2.2,
+   logLoc : process.env.LOG_PATH || '/logger',
+   tmpCenterID : process.env.TMP_CENTER_ID || '',
+   tmpHostID : process.env.TMP_HOST_ID || '',
+   liftMntSrc : process.env.LIFTOVER_MNT_SRC || '',
+   liftMntDst : process.env.LIFTOVER_MNT_DST || '',
+   gatkImg : process.env.LIFTOVER_GATK || '',
+   liftChain1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN1 || '',
+   liftChain2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN2 || '',
+   liftFasta1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA1 || '',
+   liftFasta2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA2 || '',
+   uliftChain1 : process.env.UCSC_DST+ process.env.LIFT_CHAIN1 || '',
+   uliftChain2 : process.env.UCSC_DST+ process.env.LIFT_CHAIN2 || '',
+   uliftFasta1 : process.env.UCSC_DST+ process.env.LIFT_FASTA1 || '',
+   uliftFasta2 : process.env.UCSC_DST+ process.env.LIFT_FASTA2 || '',
+   liftoverDocker : process.env.LIFTOVER_DOCKER || 'false',
+   gatkLoc : process.env.GATK_DOWNLOAD_DIR || '',
+   ucscMntDst : process.env.UCSC_DST || ''
+ },
+ db: {
+   host: process.env.DEV_DB_HOST || 'localhost',
+   port: parseInt(process.env.DEV_DB_PORT) || 27017,
+   dbName: process.env.DEV_DB_NAME || 'wingsBiominaDev',
+   authDb : process.env.MONGO_AUTH_DB || '',
+   dbAdminUser : process.env.MONGO_ADMIN_USER || '' ,
+   dbAdminPwd : process.env.MONGO_ADMIN_PWD || '',
+   dbAppUser : process.env.MONGO_APP_USER1 || '',
+   dbAppPwd : process.env.MONGO_APP_PW1 || '',
+   apiUser : process.env.DEV_API_USER || '',
+   apiUserColl : process.env.MONGO_API_USER_COLL || 'apiUsers',
+   familyCollection : process.env.MONGO_FAMILY_COLL || 'family',
+   individualCollection : process.env.MONGO_IND_COLL || 'Individuals',
+   importCollection1 : process.env.MONGO_IMPORT_COLL_TYPE1 || 'wingsVcfDataGRCh37',
+   importCollection2 : process.env.MONGO_IMPORT_COLL_TYPE2 || 'wingsVcfDataGRCh38',
+   importStatsCollection : process.env.MONGO_IMPORT_STATS || 'importStats',
+   resultCollection : process.env.MONGO_Q_RESULT_COLL || 'variantQueryResults',
+   variantAnnoCollection1 : process.env.MONGO_ANNOTATIONS_TYPE1 || 'variantAnnotationsGRCh37',
+   variantAnnoCollection2 : process.env.MONGO_ANNOTATIONS_TYPE2 || 'variantAnnotationsGRCh38',
+   sampleAssemblyCollection : process.env.MONGO_SAMPLE_ASSEMBLY || 'wingsSampleAssemblyMap',
+   phenotypeColl : process.env.MONGO_PHEN_COLL || 'indPhenotype',
+   phenotypeHistColl : process.env.MONGO_PHEN_HIST_COLL || 'indPhenHistory',
+   genePanelColl : process.env.MONGO_GENE_PANEL_COLL || 'wingsGenePanel',
+   annotationEngine : process.env.ANNOTATION_ENGINE || 'remote',
+   annotationEngineUrl : process.env.ANNOTATION_ENGINE_URL || '',
+   annoApiUser : process.env.DEV_ANNO_API_USER || '',
+   revokedDataCollection : process.env.MONGO_REV_DATA || '',
+   sampleSheetCollection : process.env.MONGO_SAMPLE_SHEET_COLL || '',
+   fileMetaCollection : process.env.MONGO_FILE_META || '',
+   hostMetaCollection : process.env.MONGO_INSTANCE_META || '',
+   indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
+   variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
+   variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
+   trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+ }
+};
+
+const test = {
+  app: {
+    instance : env,
+    expressPort : parseInt(process.env.TEST_EXPRESS_APP_PORT) || 443,
+    privkey : process.env.TEST_PRIV_KEY || '',
+    cert : process.env.TEST_CERT || '',
+    certAuth : process.env.TEST_CA || '',
+    importQCnt : process.env.IMPORT_Q_CNT || 2,
+    trioQCnt : process.env.TRIO_Q_CNT || 2,
+    sampleSheet : process.env.SAMPLE_SHEET_LOC || '',
+    centerName : process.env.CENTER_NAME || 'Unknown',
+    releaseNum : process.env.RELEASE || 2.6,
+    logLoc : process.env.LOG_PATH || '/logger',
+    tmpCenterID : process.env.TMP_CENTER_ID || '',
+    tmpHostID : process.env.TMP_HOST_ID || '',
+    liftMntSrc : process.env.LIFTOVER_MNT_SRC || '',
+    liftMntDst : process.env.LIFTOVER_MNT_DST || '',
+    gatkImg : process.env.LIFTOVER_GATK || '',
+    liftChain1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN1 || '',
+    liftChain2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN2 || '',
+    liftFasta1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA1 || '',
+    liftFasta2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA2 || '',
+    uliftChain1 : process.env.UCSC_DST+ process.env.LIFT_CHAIN1 || '',
+    uliftChain2 : process.env.UCSC_DST+ process.env.LIFT_CHAIN2 || '',
+    uliftFasta1 : process.env.UCSC_DST+ process.env.LIFT_FASTA1 || '',
+    uliftFasta2 : process.env.UCSC_DST+ process.env.LIFT_FASTA2 || '',
+    liftoverDocker : process.env.LIFTOVER_DOCKER || 'false',
+    gatkLoc : process.env.GATK_DOWNLOAD_DIR || '',
+    ucscMntDst : process.env.UCSC_DST || ''
+  },
+  db: {
+    host: process.env.TEST_DB_HOST || 'localhost',
+    port: parseInt(process.env.TEST_DB_PORT) || 27017,
+    dbName: process.env.TEST_DB_NAME || 'wingsBiominaUatv2',
+    authDb : process.env.MONGO_AUTH_DB || '',
+    dbAdminUser : process.env.MONGO_ADMIN_USER || '' ,
+    dbAdminPwd : process.env.MONGO_ADMIN_PWD || '',
+    dbAppUser : process.env.MONGO_APP_USER1 || '',
+    dbAppPwd : process.env.MONGO_APP_PW1 || '',
+    apiUser : process.env.TEST_API_USER || '',
+    apiUserColl : process.env.MONGO_API_USER_COLL || 'apiUsers',
+    familyCollection : process.env.MONGO_FAMILY_COLL || 'family',
+    individualCollection : process.env.MONGO_IND_COLL || 'Individuals',
+    importCollection1 : process.env.MONGO_IMPORT_COLL_TYPE1 || 'wingsVcfDataGRCh37',
+    importCollection2 : process.env.MONGO_IMPORT_COLL_TYPE2 || 'wingsVcfDataGRCh38',
+    importStatsCollection : process.env.MONGO_IMPORT_STATS || 'importStats',
+    resultCollection : process.env.MONGO_Q_RESULT_COLL || 'variantQueryResults',
+    variantAnnoCollection1 : process.env.MONGO_ANNOTATIONS_TYPE1 || 'variantAnnotationsGRCh37',
+    variantAnnoCollection2 : process.env.MONGO_ANNOTATIONS_TYPE2 || 'variantAnnotationsGRCh38',
+    sampleAssemblyCollection : process.env.MONGO_SAMPLE_ASSEMBLY || 'wingsSampleAssemblyMap',
+    phenotypeColl : process.env.MONGO_PHEN_COLL || 'indPhenotype',
+    phenotypeHistColl : process.env.MONGO_PHEN_HIST_COLL || 'indPhenHistory',
+    genePanelColl : process.env.MONGO_GENE_PANEL_COLL || 'wingsGenePanel',
+    annotationEngine : process.env.ANNOTATION_ENGINE || 'remote',
+    annotationEngineUrl : process.env.ANNOTATION_ENGINE_URL || '',
+    annoApiUser : process.env.DEV_ANNO_API_USER || '',
+    revokedDataCollection : process.env.MONGO_REV_DATA || '',
+    sampleSheetCollection : process.env.MONGO_SAMPLE_SHEET_COLL || '',
+    fileMetaCollection : process.env.MONGO_FILE_META || '',
+    hostMetaCollection : process.env.MONGO_INSTANCE_META || '',
+    indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
+    variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
+    variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
+    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+  }
+ };
+
+ const prod = {
+  app: {
+    instance : env,
+    expressPort : parseInt(process.env.PROD_EXPRESS_APP_PORT) || 443,
+    privkey : process.env.PROD_PRIV_KEY || '',
+    cert : process.env.PROD_CERT || '',
+    certAuth : process.env.PROD_CA || '',
+    importQCnt : process.env.IMPORT_Q_CNT || 2,
+    trioQCnt : process.env.TRIO_Q_CNT || 2,
+    sampleSheet : process.env.SAMPLE_SHEET_LOC || '',
+    centerName : process.env.CENTER_NAME || 'Unknown',
+    logLoc : process.env.LOG_PATH || '/logger',
+    releaseNum : process.env.RELEASE || 2.6,
+    tmpCenterID : process.env.TMP_CENTER_ID || '',
+    tmpHostID : process.env.TMP_HOST_ID || '',
+    liftMntSrc : process.env.LIFTOVER_MNT_SRC || '',
+    liftMntDst : process.env.LIFTOVER_MNT_DST || '',
+    gatkImg : process.env.LIFTOVER_GATK || '',
+    liftChain1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN1 || '',
+    liftChain2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_CHAIN2 || '',
+    liftFasta1 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA1 || '',
+    liftFasta2 : process.env.LIFTOVER_MNT_DST+ process.env.LIFT_FASTA2 || '',
+    uliftChain1 : process.env.UCSC_DST+ process.env.LIFT_CHAIN1 || '',
+    uliftChain2 : process.env.UCSC_DST+ process.env.LIFT_CHAIN2 || '',
+    uliftFasta1 : process.env.UCSC_DST+ process.env.LIFT_FASTA1 || '',
+    uliftFasta2 : process.env.UCSC_DST+ process.env.LIFT_FASTA2 || '',
+    liftoverDocker : process.env.LIFTOVER_DOCKER || 'false',
+    gatkLoc : process.env.GATK_DOWNLOAD_DIR || '',
+    ucscMntDst : process.env.UCSC_DST || ''
+  },
+  db: {
+    host: process.env.PROD_DB_HOST || 'localhost',
+    port: parseInt(process.env.PROD_DB_PORT) || 27017,
+    dbName: process.env.PROD_DB_NAME || 'wingsBiominav2',
+    authDb : process.env.MONGO_AUTH_DB || '',
+    dbAdminUser : process.env.MONGO_ADMIN_USER || '' ,
+    dbAdminPwd : process.env.MONGO_ADMIN_PWD || '',
+    dbAppUser : process.env.MONGO_APP_USER1 || '',
+    dbAppPwd : process.env.MONGO_APP_PW1 || '',
+    apiUser : process.env.PROD_API_USER || '',
+    apiUserColl : process.env.MONGO_API_USER_COLL || 'apiUsers',
+    familyCollection : process.env.MONGO_FAMILY_COLL || 'family',
+    individualCollection : process.env.MONGO_IND_COLL || 'Individuals',
+    importCollection1 : process.env.MONGO_IMPORT_COLL_TYPE1 || 'wingsVcfDataGRCh37',
+    importCollection2 : process.env.MONGO_IMPORT_COLL_TYPE2 || 'wingsVcfDataGRCh38',
+    importStatsCollection : process.env.MONGO_IMPORT_STATS || 'importStats',
+    resultCollection : process.env.MONGO_Q_RESULT_COLL || 'variantQueryResults',
+    variantAnnoCollection1 : process.env.MONGO_ANNOTATIONS_TYPE1 || 'variantAnnotationsGRCh37',
+    variantAnnoCollection2 : process.env.MONGO_ANNOTATIONS_TYPE2 || 'variantAnnotationsGRCh38',
+    sampleAssemblyCollection : process.env.MONGO_SAMPLE_ASSEMBLY || 'wingsSampleAssemblyMap',
+    phenotypeColl : process.env.MONGO_PHEN_COLL || 'indPhenotype',
+    phenotypeHistColl : process.env.MONGO_PHEN_HIST_COLL || 'indPhenHistory',
+    genePanelColl : process.env.MONGO_GENE_PANEL_COLL || 'wingsGenePanel',
+    annotationEngine : process.env.ANNOTATION_ENGINE || 'remote',
+    annotationEngineUrl : process.env.ANNOTATION_ENGINE_URL || '',
+    annoApiUser : process.env.DEV_ANNO_API_USER || '',
+    revokedDataCollection : process.env.MONGO_REV_DATA || '',
+    sampleSheetCollection : process.env.MONGO_SAMPLE_SHEET_COLL || '',
+    fileMetaCollection : process.env.MONGO_FILE_META || '',
+    hostMetaCollection : process.env.MONGO_INSTANCE_META || '',
+    indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
+    variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
+    variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
+    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+  }
+ };
+
+const config = {
+ dev,
+ test,
+ prod
+};
+
+module.exports = config[env];

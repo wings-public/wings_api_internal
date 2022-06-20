@@ -1,0 +1,58 @@
+{
+"FAMILY" : {
+              "_comment" : "This structure will group each relation based on the chosen criteria .If  there are mutiple rows for a sibling, then it will be OR and grouped as an array",
+              "Filter" : "$AND",
+              "relations" : ["p1","s1","s2"],
+              "clause" : "chr:$neq:2~3~4~6~10",
+              "p1" : {
+                            "join" : "or",
+                            "sid" : [18311],
+                            "conditions" : { "gt":[0,1,2],
+                                             "Match" : 1
+                                           }
+                            
+                     },
+              "s1" : {
+                            "join" : "and",
+                            "sid" : [18315,18319],
+                            "conditions" : { 
+                                              "18315" : { "gt" : [0,1],
+                                                          "Match" : 1
+                                                         },
+                                               "18319" : { "gt" : [1,2],
+                                                           "Match" : 0
+                                                         }
+                                            }
+                     },
+               "s2" : {
+                             "join" : "or",
+                             "sid" : [18317],
+                             "conditions" : { "gt" : [1,2],
+                                              "Match" : 1 
+                                            }
+                      }
+
+            },
+"LOGICAL_FILTERS" : {
+                        "filter_levels" : [
+                                              { "filter" : "$or",
+                                                "conditions" : ["read_pos_ranksum:$gt:2.3:float","vqslod:$gt:2.5:float"],
+                                                "cumulate" : "no",
+                                                "tag" : "na",
+                                                "_comment" : "inner most logical condition.level1"
+                                              },
+                                              { "filter" : "$and",
+                                                "conditions" : ["alt_cnt:$eq:any_genotype:int","chr:$neq:2~3~4~6~10:int"],
+                                                "cumulate" : "yes",
+                                                "tag" : "na",
+                                                "_comment" : "level2. (+ level1)"
+                                              },
+                                              { "filter" : "$and",
+                                                "conditions" : ["v_type:$eq:ins:String","phred_genotype:$gt:50:int"],
+                                                "cumulate" : "yes",
+                                                "tag" : "db",
+                                                "_comment" : "level3. (+level2 (+level1) ). tag:db which cumulates previous conditions gets added to mongodb clause"
+                                              }
+                                          ]
+                     }
+}

@@ -1,0 +1,18 @@
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },
+                  { "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "fail" , "leaf" : 0 },
+                  { "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 }
+                ]
+}
+
+
+{ "condition" : [ { "c" : {"sid" : {"$eq" : 159142}  } , "type" : "pass", "leaf":1 } ] }
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 1 } ] }
+
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AN_all" : {"$gt" : 20000} } , "type" : "pass" , "leaf" : 0 } , {"c" : {"phred_score" : {"$gt" : 2.3}  } , "type" : "pass", "leaf":1}] }
+
+
+{ "condition" : [ { "c" : {"v_type" : {"$eq" : "del"}  } , "type" : "pass", "leaf":0 },{ "c" : {"gt_ratio" : {"$gt" : 0.5} } , "type" : "pass" , "leaf" : 0 },{ "c" : {"gnomAD.AF_all" : {"$eq" : null} } , "type" : "pass" , "leaf" : 0 } , {"c" : {"phred_score" : {"$gt" : 2.3}  } , "type" : "pass", "leaf":1}] }

@@ -1,0 +1,39 @@
+# Docker
+# Build a Docker image 
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+- master
+
+resources:
+- repo: self
+
+variables:
+  tag: '$(Build.BuildId)'
+
+stages:
+- stage: Build
+  displayName: buildimage
+  jobs:
+  - job: Build
+    displayName: buildjob
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+    - task: Docker@2
+      displayName: pipeline build stage
+      inputs:
+        repository: 'wingsorg/wingsapi'
+        command: build
+        dockerfile: 'Dockerfile'
+        tags: |
+          v2.7.1-misc
+    - task: Docker@2
+      displayName: pipeline push stage
+      inputs:
+        containerRegistry: |
+          wingsdockerserviceprod
+        repository: 'wingsorg/wingsapi'
+        command: push
+        tags: |
+          v2.7.1-misc

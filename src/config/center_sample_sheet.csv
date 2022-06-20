@@ -1,0 +1,37 @@
+#Field Name Description and Examples
+#Mandatory Fields are listed below :
+########################################################################################################################################################
+#PIName: PI related to the sample. PI should be defined in WiNGS and should have required access in WiNGS <character>
+#FileLocation : <URL> or <Server_Location> File data has to be related to vcf/gvcf/bam/fastq or corresponding index files.
+#FileType : VCF,VCF INDEX,gVCF,gVCF INDEX,BAM,BAM INDEX,CRAM,CRAM INDEX,FASTQ,FASTQ F,FASTQ R <only these types are allowed>
+#Description : Additional details to describe the entry.
+#AssemblyType/ReferenceBuild : hg19/hg38/GRCh37/GRCh38 <only these 5 values are allowed> na is allowed only if the FileType belongs to FASTQ,FASTQ F,FASTQ R
+#SampleLocalID: DNA number. Remark : In this release we support only 1 Unique sample local ID for an Individual<String>
+#IndLocalID: Semi anonymous ID<String>
+#SampleType:Research/Diagnostics <only these 2 types allowed>
+#SequenceMachine:Provide test if you are not sure of the sequence machine <String>
+#SeqKitModel:Provide testModel if you are not sure of the sequence kit model <check the model mentioned in UI>
+#SequencingCoverage: <integer>
+#SequenceType:WES/WGS/PANEL <only these 3 types allowed/not case-sensitive>
+#ReadLength: <Numeric>
+#DateOfSequencing:<YYYY/MM/DD> <Date_Validation>
+#PanelTypeName : Panel name has to be provided if Sequence Type is Panel<only these types are allowed>
+#IndividualGender:Male/Female/Unknown
+#########################################################################################################################################################
+# Optional Fields are listed below : 
+#IndividualFName:First Name of Individual <char>
+#IndividualLName:Last Name of Individual <char>
+#IndividualBirthDate: <YYYY/MM/DD> <Date_Validation>
+##########################################################################################################################################################
+#Example Entry : TestPI,/datafiles/genomes/sample_name-12378.vcf.gz,vcf,sample description,hg19,deafness_lab2,christo_lab1,Research,test,testModel,40,WGS,39,2012/03/12,,,,Female,
+###############################
+#PIName,FileLocation,FileType,Description,AssemblyType,SampleLocalID,IndLocalID,SampleType,SequenceMachine,SeqKitModel,SequencingCoverage,SequenceType,ReadLength,DateOfSequencing,PanelTypeName,IndividualFName,IndividualLName,IndividualGender,IndividualBirthDate
+#Please enter the values below in csv format
+Gewty,/home/nsattanathan/VCF_data/9965.vcf,VCF,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/VCF_data/9965.vcf,VCF,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/bam_data/file1.bam,BAM,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/bam_data/file1.idx,BAM INDEX,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/fastq/test_d.fastq,FASTQ,test description,na,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/VCF_data/5495.vcf,VCF,test description,na,deafness_lab2,ind_lab1,Research,Illumina,testModel,30,PANEL,20,2019/12/02,,fname,lname,Male,
+Gewty,/home/nsattanathan/VCF_data/9965.vcf.idx,VCF,test description,hg19,deafness_lab3,ind_lab1,Research,Illumina,testModel,30,PANEL,20,2019/12/02,test,fname,lname,Male,
+Gewty,/home/nsattanathan/VCF_data/979.vcf,VCF,test description,hg19,deafness_lab3,ind_lab2,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,

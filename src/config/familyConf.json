@@ -1,0 +1,9 @@
+{
+   "trio" : { "order" : ["Proband","Father","Mother"],
+              "sample_codes" : { "proband" : "200",
+                                  "father" : "020",
+                                  "mother" : "002"
+                                }
+            } 
+}
+   

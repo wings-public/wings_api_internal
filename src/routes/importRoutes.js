@@ -25,6 +25,7 @@ const {default: PQueue} = require('p-queue');
 
 const queue = new PQueue({ concurrency: parseInt(importQCnt) });
 const importQueueScraper = require('../routes/queueScrapper').importQueueScraper;
+const importQueueScraperAnno = require('../routes/queueScrapper').importQueueScraperAnno;
 
 const importRoutes = (app) => {
     app.route('/importVCF')
@@ -42,6 +43,7 @@ const importRoutes = (app) => {
         var indLocalID = reqBody['indLocalID'];
         var indID = reqBody['IndividualID'];
         var panelType = reqBody['panelType'];
+        var fileType = reqBody['fileType'];
 
         var pid = process.pid;
         //console.log(res);
@@ -130,7 +132,8 @@ const importRoutes = (app) => {
                     familyID = indFamily['familyId'];
                     trioStatus = await checkTrioMember(indID,familyID);
                 }
-                await db.collection(indSampCollection).insertOne({_id: uID, SampleLocalID : sampleLocalID,IndLocalID : indLocalID,SeqTypeName : seqType.toUpperCase(),FileType: 'VCF',AssemblyType : assemblyType, individualID : indID, fileID: parseInt(fileId),trio:trioStatus,'panelType': panelType.toUpperCase()});
+                // fileType was hardcoded as 'VCF' This will be replaced with the request parameter to distinguish VCF and gVCF
+                await db.collection(indSampCollection).insertOne({_id: uID, SampleLocalID : sampleLocalID,IndLocalID : indLocalID,SeqTypeName : seqType.toUpperCase(),FileType: fileType,AssemblyType : assemblyType, individualID : indID, fileID: parseInt(fileId),trio:trioStatus,'panelType': panelType.toUpperCase()});
             }
 
 
@@ -159,10 +162,17 @@ const importRoutes = (app) => {
                 try {
                     await importQueueScraper(uDateId,sample,fileId,batchSize,assemblyType);
                     createLog.debug("await completed for importQueueScrapper");
+                    // include annotation version if defined
+                    var annoVer = "";
+                    if ( process.env.CURR_ANNO_VER ) {
+                        annoVer = process.env.CURR_ANNO_VER;
+                    }
+
                     await statsColl.updateOne({'_id':uDateId},
-                    {$set : {'status_description' : 'Import Request Completed','status_id':8,'finish_time': new Date()},
+                    {$set : {'status_description' : 'Import Request Completed','status_id':8,'finish_time': new Date(), "anno_ver": annoVer},
                     $push: {'status_log': {status:"Import Request Completed",log_time: new Date()}}});
-                    await sidAssemblyColl.insertOne({'_id':fileId,'assembly_type':assemblyType, "fileID": parseInt(fileId)});
+                    // Commented - 28/06/2023 This collection is not used in trio.
+                    //await sidAssemblyColl.insertOne({'_id':fileId,'assembly_type':assemblyType, "fileID": parseInt(fileId)});
                     // update status for sample sheet entry
                     await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import success"}});
                     // Here include trip related checks
@@ -179,6 +189,120 @@ const importRoutes = (app) => {
                      await statsColl.updateOne(id,set);
                      // update status for sample sheet entry
                      await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import failed"}});
+                     createLog.debug("Adding error for importQueueScrapper");
+                     createLog.debug("Import Request Error");
+                     createLog.debug(err);
+                     console.log(err);
+                }
+            } );
+
+            createLog.debug("******************* QUEUE STATS *************************");
+            createLog.debug('Added : importQueue to import router Queue');
+            createLog.debug(`Queue Size : ${queue.size}`);
+            createLog.debug(`Pending promises: ${queue.pending}`);
+            
+            // nodejs request module and trigger https Annotation Request
+            // handler specific to parent process
+            process.on('beforeExit', (code) => {
+                createLog.debug(`--------- About to exit PARENT PROCESS with code: ${code}`);
+                console.log(`--------- About to exit PARENT PROCESS with code: ${code}`);
+            });
+        } catch(err) {
+            console.log("*************Looks like we have received an error message");
+            console.log(err);
+            next(`${err}`);
+        }
+    });
+
+    app.route('/annotateVCF')
+    .post( loginRequired,async (req,res,next) => {
+        // Request body contains the VCF Sample ID and VCF File Path/VCF URL
+        var reqBody = req.body;
+        console.log("Logging request body");
+        console.log(reqBody);
+        var fileId = reqBody['fileID'];
+        var assemblyType = reqBody['assemblyType'];
+        // VEP or CADD 
+        var annoType = reqBody['annoType'];
+
+        // regulatory,maxentscan
+        var annoField = reqBody['annoField'];
+
+        var pid = process.pid;
+        //console.log(res);
+        console.log("Received Request for sample FILE ID ************** "+fileId);
+        console.log("Process Related to this is "+pid);
+        try {
+             
+            if (  ! fileId  || ! assemblyType  ) {
+                throw "JSON Structure Error";
+            }
+
+            if (['hg19','hg38','GRCh37','GRCh38'].indexOf(assemblyType) < 0 ) {
+            //if ( assemblyType != 'hg19' || assemblyType != 'hg38' || assemblyType != 'GRCh37' || assemblyType != 'GRCh38' ) {
+                throw "assemblyType: Supported options are hg19/hg38/GRCh37/GRCh38";
+            }
+
+            
+            var orCriteria = {};
+            if ( (assemblyType == "hg19") || ( assemblyType == "GRCh37")) {
+                orCriteria['cond'] =  [{AssemblyType: "hg19"},{AssemblyType: "GRCh37"}];
+            } else if ((assemblyType == "hg38") || ( assemblyType == "GRCh38")) {
+                orCriteria['cond'] = [{AssemblyType: "hg38"},{AssemblyType: "GRCh38"}];
+            }
+
+            //res.status(200).json({"id":uDateId,"message":"Import Request Scheduled"});
+
+            var client = getConnection();
+            const db = client.db(dbName);
+            var statsColl = db.collection(importStatsCollection);
+
+            var uDateId = await statsColl.findOne({'fileID':fileId},{'projection':{_id:1}});
+
+            var annoMsg = {"id":uDateId,"status_description":"Reannotation Request Scheduled",'error_info' : null};
+            res.status(200).json({"message":annoMsg});
+
+            // update stats for sample sheet entry to inprogress
+            //console.log(statsColl);
+
+            // Traverse the Table and start the process. Make sure at a time, there are only 4 import process
+
+            // Trigger Process Start
+            var parsePath = path.parse(__dirname).dir;
+            //var logFile = path.join(parsePath,'import','log',`import-route-logger-${fileId}-${uDateId}.log`);
+            var logFile = `import-route-logger-${fileId}-${uDateId}.log`;
+            var createLog = loggerMod.logger('import',logFile);
+            createLog.debug("Logging request body below----------");
+            createLog.debug(reqBody);
+            createLog.debug("/annotateVCF request");
+            createLog.debug(`fileID ${fileId}`);
+            createLog.debug(`uDateId: ${uDateId}`);
+
+            var qcount = 0;
+            queue.on('active', () => {
+                console.log(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+                createLog.debug(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+            });
+
+            queue.add( async () => { 
+                try {
+                    console.log("Request - Import Task");
+                    await importQueueScraperAnno(uDateId,fileId,assemblyType,annoType,annoField);
+                    createLog.debug("await completed for importQueueScrapper");
+                    await statsColl.updateOne({'_id':uDateId},
+                    {$set : {'status_description' : 'Reannotation process Completed','status_id':8,'finish_time': new Date()},
+                    $push: {'status_log': {status:"Reannotation process Completed",log_time: new Date()}}});
+                    
+                    // Here include trip related checks
+                    createLog.debug("Annotation Request Completed");
+                    console.log("Done : Annotate Task"); 
+                    
+                } catch(err) {
+                     var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                     var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                     await statsColl.updateOne(id,set);
+                     // update status for sample sheet entry
+                     //await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import failed"}});
                      createLog.debug("Adding error for importQueueScrapper");
                      createLog.debug("Import Request Error");
                      createLog.debug(err);

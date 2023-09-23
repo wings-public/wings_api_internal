@@ -103,7 +103,7 @@ async function generateCodes(n){
 async function scanTrioSample(reqJson,trioColl,queryCollObj,trioCont) {
     try {
         
-        var relations = Object.keys(reqJson['family']); // keys:proband father mother
+        var relations = Object.keys(reqJson['family']); // keys:Proband Father Mother
         var samples = Object.values(reqJson['family']); // values:samples
         var trioCodeHash = {};
 
@@ -127,9 +127,13 @@ async function scanTrioSample(reqJson,trioColl,queryCollObj,trioCont) {
         console.log("Time taken for Sample Count Start *********"+new Date());
         for (let i = 0; i < sampleCodeKeys.length ; i++ ) {
             var relation1 = sampleCodeKeys[i];
+            trioCont.debug("Relation is "+relation1);
             var sampId = reqJson['family'][relation1];
             var trioCode = sampleCodes[relation1];
+            trioCont.debug("Trio code is "+trioCode);
+            trioCont.debug("Samp Id is "+sampId);
             var sampCount = await getSampleCount(queryCollObj,sampId);
+            trioCont.debug(`Sample count for ${sampId} is ${sampCount}`);
             // unset trio_code to ensure there are no old traces of trio code for hom-ref variants
             trioCont.debug("Reset trio_code for hom-ref variants in sample  "+sampId);
             await queryCollObj.updateMany({'fileID':sampId,'alt_cnt':{$eq:0}},{$unset : {'trio_code':1}});
@@ -139,18 +143,17 @@ async function scanTrioSample(reqJson,trioColl,queryCollObj,trioCont) {
         console.log("Time taken for Sample Count Stop *********"+new Date());
         trioCont.debug(trioCodeHash);
      
-
-        //var order = ['proband','father','mother'];
+        //var order = ['Proband','Father','Mother'];
 
         trioCont.debug("Trio code plot order is "+order);
         var sampleOrder = [];
-        // traverse the order array. Example : proband,father,mother
+        // traverse the order array. Example : Proband,Father,Mother
         for ( var idx1 in order ) {
             // fetch the familyType from order array
             var familyType = order[idx1];
             if ( reqJson['family'][familyType]) {
                 // fetch the 'sid' corresponding to the family member type.
-                // 1000001(proband),1000002(father),1000003(mother)
+                // 1000001(Proband),1000002(Father),1000003(Mother)
                 sampleOrder.push(reqJson['family'][familyType]);
             }
         }
@@ -283,8 +286,10 @@ async function processVariants(sampleOrder,dataSet,trioCodeHash,samples) {
 async function getSampleCount(queryCollObj,sid) {
     try {
         sid = parseInt(sid);
+        //console.log("Sample ID "+sid);
         // ignore hom-ref variants. only heterozygous, hom-alt variants are considered for counts.
         var sampCnt = await queryCollObj.find({'fileID':sid,'alt_cnt':{$ne:0}}).count();
+        //console.log("Sample Count is "+sampCnt);
         return sampCnt;
     } catch(err) {
         throw err;

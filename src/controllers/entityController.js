@@ -7,12 +7,15 @@ const configData = require('../config/config.js');
 var path = require('path');
 const { app:{instance,logLoc} } = configData;
 const {logger,loggerEnv} = require('../controllers/loggerMod');
-const { db : {host,port,dbName,apiUserColl,apiUser,familyCollection,individualCollection,variantAnnoCollection1,variantAnnoCollection2,resultCollection, revokedDataCollection,importStatsCollection,sampleSheetCollection,phenotypeColl,phenotypeHistColl,sampleAssemblyCollection, genePanelColl,fileMetaCollection,hostMetaCollection,indSampCollection,trioCollection,importCollection1,importCollection2} , app:{trioQCnt}} = configData;
+const { db : {host,port,dbName,apiUserColl,apiUser,familyCollection,individualCollection,variantAnnoCollection1,variantAnnoCollection2,resultCollection, revokedDataCollection,importStatsCollection,sampleSheetCollection,phenotypeColl,phenotypeHistColl,sampleAssemblyCollection, genePanelColl,fileMetaCollection,hostMetaCollection,indSampCollection,trioCollection,importCollection1,importCollection2,annoHistColl} , app:{trioQCnt}} = configData;
+
+const reannoQueueScraperAnno = require('../routes/queueScrapper').reannoQueueScraperAnno;
 
 const spawn  = require('child_process');
 const getConnection = require('../controllers/dbConn.js').getConnection;
 //const createApiUser = require('../controllers/userControllers.js').createApiUser;
 const createTTLIndexExpire = require('../controllers/dbFuncs.js').createTTLIndexExpire;
+const closeSignalHandler = require('../controllers/execChildProcs.js').closeSignalHandler;
 const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
 const pedigreeConfig = require('../config/familyMemberType.json');
 //const { create } = require('domain');
@@ -28,6 +31,12 @@ const {default: PQueue} = require('p-queue');
 // create a new queue, and pass how many you want to scrape at once
 
 const trioQueue = new PQueue({ concurrency: parseInt(trioQCnt) });
+
+if ( process.env.REANNO_Q_SIZE ) {
+    qSize = parseInt(process.env.REANNO_Q_SIZE);
+}
+
+const reannoqueue = new PQueue({ concurrency: qSize });
 
 const initialize = async () => {
     //const getSuccess = new Promise( (resolve) => resolve("Success") );
@@ -47,6 +56,143 @@ const initialize = async () => {
             console.log(`${apiUser} already exists`);
         }
     } catch(err) {
+        console.log(err);
+    }
+
+    // Check if HIST_ANNO_VER env is defined and rename the existing annotation collections
+    // These will be archived anno collections.
+    try {
+        var annoVer = "";
+        if ( process.env.HIST_ANNO_VER ) {
+            annoVer = process.env.HIST_ANNO_VER;
+            var verAnnoColl1 = variantAnnoCollection1+annoVer;
+            var verAnnoColl2 = variantAnnoCollection2+annoVer;
+            //console.log(`verAnnoColl1:${verAnnoColl1}`);
+            //console.log(`verAnnoColl2:${verAnnoColl2}`);
+            var stat1 = await checkCollectionExists(verAnnoColl1);
+            var stat2 = await checkCollectionExists(verAnnoColl2);
+
+            var utcTime = new Date().toUTCString();
+            var hist_obj1 = {"version" : process.env.HIST_ANNO_VER, "archived_coll" : verAnnoColl1, "archive_date": utcTime,"assembly_type": "hg19"};
+            var hist_obj2 = {"version" : process.env.HIST_ANNO_VER, "archived_coll" : verAnnoColl2, "archive_date":utcTime,"assembly_type": "hg38"};
+            // check if the above collections do not exist before executing rename
+            // hg19 annotation collection
+            await renameColl(variantAnnoCollection1,verAnnoColl1,annoHistColl,hist_obj1);
+            // hg38 annotation collection
+            await renameColl(variantAnnoCollection2,verAnnoColl2,annoHistColl,hist_obj2);
+
+
+            // *************************************************************
+            // ************ Reannotation Queue process *********************
+
+            var client = getConnection();
+            const db = client.db(dbName);
+            const importColl1 = db.collection(importCollection1);
+            var dList = await importColl1.distinct('fileID');
+
+            const importColl2 = db.collection(importCollection2);
+            var dList2 = await importColl2.distinct('fileID');
+            // merge both the lists -- samples to be reannotated
+            // GRCh37 + GRCh38 
+            //dList = dList.concat(dList2);
+            // checked file list 
+            var reannoFList1 = await checkFileState(db,dList,annoVer);
+            var reannoFList2 = await checkFileState(db,dList2,annoVer);
+
+            // Queue Monitor 
+            reannoqueue.on('active', () => {
+                console.log(`Working on item #${++qcount}.  Size: ${reannoqueue.size}  Pending: ${reannoqueue.pending}`);
+                //createLog.debug(`Working on item #${++qcount}.  Size: ${reannoqueue.size}  Pending: ${reannoqueue.pending}`);
+            });
+    
+            reannoqueue.on('add', () => {
+                console.log(`Task is added.  Size: ${reannoqueue.size}  Pending: ${reannoqueue.pending}`);
+            });
+    
+            reannoqueue.on('next', () => {
+                console.log(`Task is completed.  Size: ${reannoqueue.size}  Pending: ${reannoqueue.pending}`);
+            });
+            //////////////////////////////////////
+
+            // hg19 
+            for (const fileId of reannoFList1) {
+                    console.log(`Queued fileID ${fileId}`);
+                    console.log("------------------------------------");
+                    
+        
+                    var qcount = 0;
+        
+                    // Adding queue  -- Start
+                    reannoqueue.add( async () => { 
+                        try {
+                            console.log(`Queued Request - Import Task- ${fileId}`);
+                            console.log("Calling importQueueScraperAnno");
+                            var fIDStr = fileId.toString();
+                            console.log("START file ID **********************"+fIDStr);
+                            var uDateId = "";
+                            uDateId = await getuDateId(db,fIDStr);
+                            console.log(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
+                            console.log("uDateId **********************"+uDateId);
+        
+                            // annoType = Def ; annoField = Def
+                            console.log(`uDateId:${uDateId} fileId:${fileId}`)
+                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh37","Def","Def",0);
+                            
+                            console.log(`Done : Annotate Task - ${fileId}`); 
+                        } catch(err) {
+                             //var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                             //var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                             console.log(err);
+                        }
+                    } );
+        
+                    // End queue
+                } // for loop
+                console.log("hg19 completed");
+
+                // hg38 - redundant process
+                for (const fileId of reannoFList2) {
+                    console.log(`Starting Annotation for fileID ${fileId}`);
+                    console.log("------------------------------------");
+                    
+        
+                    var qcount = 0;
+        
+                    // Adding queue  -- Start
+                    reannoqueue.add( async () => { 
+                        try {
+                            console.log(`Queued Request - Import Task- ${fileId}`);
+                            console.log("Calling importQueueScraperAnno");
+                            var fIDStr = fileId.toString();
+                            console.log("START file ID **********************"+fIDStr);
+                            var uDateId = "";
+                            uDateId = await getuDateId(db,fIDStr);
+                            console.log(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
+                            console.log("uDateId **********************"+uDateId);
+        
+                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh38","Def","Def",0);
+                            
+                            console.log(`Done : Annotate Task - ${fileId}`); 
+                        } catch(err) {
+                             //var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                             //var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                             console.log(err);
+                        }
+                    } );
+        
+                    // End queue
+                } // for loop
+
+                console.log("hg38 completed");
+
+
+            // check if there are any samples in importStats without anno_ver. 
+            // If true : then set the anno_ver to HIST_ANNO_VER
+            // Existing samples will be reannotated
+
+        }
+    } catch(err) {
+        console.log("***********************************");
         console.log(err);
     }
 
@@ -855,6 +1001,7 @@ const updateFamilySid = async(reqBody) => {
         var seqType = reqBody['SequenceType'];
         var action = reqBody['action'];
         var panelType = reqBody['PanelType'];
+        //var fileType = reqBody['FileType'];
 
         if ( seqType.toUpperCase() == "PANEL") {
             panelType = panelType.toUpperCase();
@@ -955,6 +1102,9 @@ const updateFamilySid = async(reqBody) => {
                     if ( action == "assign" ) {
                         if ( triggerCompute ) {
                             if ( seqType.toUpperCase() == "PANEL") {
+                                // All files related to this sequence type,sample are assigned to the Individual.
+                                // vice-versa -> Individual is linked to this Sample 
+                                // Additional for Panel Sequencing, we also consider panel type.
                                 indSColl.updateMany({'SeqTypeName':seqType,'SampleLocalID':sLocalID,'individualID':indId,'panelType':panelType},{$set:{'trio':1,'state':'assigned'}});
                             } else {
                                 indSColl.updateMany({'SeqTypeName':seqType,'SampleLocalID':sLocalID,'individualID':indId},{$set:{'trio':1,'state':'assigned'}});
@@ -969,7 +1119,8 @@ const updateFamilySid = async(reqBody) => {
                                 //console.log(famIndArr);
                                 var concatStr = familyId.toString();
                                 // search only for specific sequence type
-                                var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'SeqTypeName':seqType,'panelType':panelType,'state':{$ne:'unassigned'}}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","panelType":"$panelType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-",concatStr,"$panelType"]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
+                                // including FileType to the trioLocalID and _id
+                                var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'SeqTypeName':seqType,'panelType':panelType,'state':{$ne:'unassigned'}}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","FileType":"$FileType","panelType":"$panelType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-","$FileType","-",concatStr,"$panelType"]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
 
                                 var insertArr = await scanTrioCursor(trioGroupCursor,familyId);         
 
@@ -1036,7 +1187,8 @@ const triggerAssemblySampTrio = async (familyId,seqType,assemblyType) => {
         var famIndArr = await getFamTrio(familyId);
         var concatStr = familyId.toString();
         
-        var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'SeqTypeName':seqType,'state':{$ne:'unassigned'},'AssemblyType':assemblyType}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-",concatStr]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
+        // including FileType to _id and trioLocalID
+        var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'SeqTypeName':seqType,'state':{$ne:'unassigned'},'AssemblyType':assemblyType}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","FileType":"$FileType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-","$FileType","-",concatStr]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
 
         var insertArr = await scanTrioCursor(trioGroupCursor,familyId); 
         //console.log("Scanned trio array . Details below:");
@@ -1047,16 +1199,18 @@ const triggerAssemblySampTrio = async (familyId,seqType,assemblyType) => {
         var trioLaunchScript = path.join(basePath,'controllers','trioLaunchQueue.js');  
         entityLog.debug("TRIO ************ Launch script is "+trioLaunchScript);
 
-        var localCursor = await trColl.findOne({'familyID':familyId,'SeqTypeName':seqType,'AssemblyType':assemblyType},{'projection':{'TrioLocalID':1}});
+        // change findOne to find as there can be VCF and also gVCF filetypes
+        var localCursor = await trColl.find({'familyID':familyId,'SeqTypeName':seqType,'AssemblyType':assemblyType},{'projection':{'TrioLocalID':1}});
         //console.log("localCursor is "+localCursor);
-        if ( localCursor ) {
-            var doc = localCursor;
+        // Loop as there can be multiple file types(VCF and gVCF)
+
+        while ( await localCursor.hasNext()) {
+            var doc = await localCursor.next();
             var localID = doc['TrioLocalID'];
             //console.log("Launching trio request for LocalID "+localID);
             const trioChildProc = spawn.fork(trioLaunchScript,['--family_id',familyId, '--trio_local_id', localID],{'env':process.env});
-            return "success";
         }
-
+        return "success";
     } catch(err) {
         return err;
     }
@@ -1265,6 +1419,8 @@ const updateRelative = async (type,jsonData) => {
 
     entityLog.debug("Received request - updateRelative");
     // only check if key exists. to make sure it still validates when Node_Key value is 0
+    var trColl = db.collection(trioCollection);
+    const indColl = db.collection(individualCollection);
     if ( 'Node_Key' in jsonData['update']  && jsonData['update']['relatives'] ) {
         try {
             // id indicates family ID
@@ -1287,7 +1443,9 @@ const updateRelative = async (type,jsonData) => {
 
             var trioDoc = {};
             if ( nodekey == 0 || nodekey == 1 ) {
-                trioDoc = await familyColl.findOne({'_id':id,'pedigree.Node_Key':nodekey},{'projection':{'pedigree.Node_Key.$':1 }});
+                //trioDoc = await familyColl.findOne({'_id':id,'pedigree.Node_Key':nodekey},{'projection':{'pedigree.Node_Key.$':1 }});
+                // Updating the above as the projection only gives the Node_Key and other fields are not displayed.
+                trioDoc = await familyColl.findOne({'_id':id,'pedigree.Node_Key':nodekey},{'projection':{'pedigree.$':1 }});
             }
             entityLog.debug("Logging doc of nodekey "+nodekey);
             entityLog.debug(trioDoc);
@@ -1297,13 +1455,38 @@ const updateRelative = async (type,jsonData) => {
                 //entityLog.debug("Request SID is "+reqSid);
                 if ( nodekey == 0 || nodekey == 1) {
                     // check1 : relative to individual or first time /updateRelative request
-                    // check2 : indId present in database is not same as indId present in request. This is to make sure the trio is not incremented every time an updateRelative request is received.
-                    if ( (trioDoc['pedigree'][0]['IndividualID'] == null) && (reqIndId != null) && (trioDoc['pedigree'][0]['IndividualID'] != reqIndId)) {
+                    if ( (trioDoc['pedigree'][0]['IndividualID'] == null) && (reqIndId != null)) {
+                        entityLog.debug("Defined Individual,relative to Individual or first time update request");
                         // increment trio
                         /*entityLog.debug("currentTrioCounter is "+currentTrioCounter);
                         currentTrioCounter++;
                         entityLog.debug("currentTrioCounter is "+currentTrioCounter);*/
                         // set trio code = 1 for all files related to this Individual(father/mother)
+                        var res2 = await updateTrio(reqIndId,1,"set");
+                    // check2 : indId present in database is not same as indId present in request. This is to make sure the trio is not incremented every time an updateRelative request is received.
+                    } else if ((reqIndId != null) && (trioDoc['pedigree'][0]['IndividualID'] != reqIndId) ) { 
+                        entityLog.debug("I1 to I2 scenario");
+                        // I1 to I2 scenario ( storedIndId to reqIndId)
+                        // remove references related to I1
+                        var storedIndId = trioDoc['pedigree'][0]['IndividualID'];
+
+                        // unset familyId for I1 and also trio value
+                        entityLog.debug(`${storedIndId} to ${reqIndId}`);
+                        var res3 = await updateTrio(storedIndId,0,"unset");
+
+                        entityLog.debug("Request to reset Trio Status and also Trio Code");
+                        await trColl.updateMany({'familyID':id,'trio.individualID':storedIndId},{$set:{'TrioStatus':'disabled','TrioCode':null}});
+
+                        var searchQ = {'_id' : storedIndId};
+                        var setFam = { $unset : {'familyId':1,'proband':1} };
+                        entityLog.debug(setFam);
+                        entityLog.debug(searchQ);
+                        var relUpdRes = await indColl.updateOne(searchQ,setFam);
+                        entityLog.debug("FamilyID removed from Individual Collection");
+                        // re-calculate stored trio counter
+                        storedTrioCounter = await fetchTrioCounter(id);
+
+                        // set trio for newly added Individual
                         var res2 = await updateTrio(reqIndId,1,"set");
                     }
                     // rare scenario. This will not happen in a regular case.
@@ -1353,6 +1536,7 @@ const updateRelative = async (type,jsonData) => {
                 if ( nodekey == 0  || nodekey == 1 ) {
                     // check1 : Individual to relative
                     // check2 : indId present in database is not same as indId present in request. This is to make sure the trio is not incremented every time an updateRelative request is received.
+                    // check2 is not needed as the Individual has to be only unassigned to transition from Individual to relative.
                     if ( (trioDoc['pedigree'][0]['IndividualID'] != null) && (reqIndId == null) && (trioDoc['pedigree'][0]['IndividualID'] != reqIndId)) {
                         // decrement trio
                         //currentTrioCounter--;
@@ -1400,6 +1584,8 @@ const updateRelative = async (type,jsonData) => {
             // Disable trio analysis pre-compute procedure
             // add checks to make sure pre-compute is fired only when there is a change.
             
+            entityLog.debug(`storedTrioCounter:${storedTrioCounter}`);
+            entityLog.debug(`currentTrioCounter:${currentTrioCounter}`);
             if ( (storedTrioCounter != currentTrioCounter) && (currentTrioCounter == 3 ) ) {
             //if ( currentTrioCounter == 3 )  {
                 // Trigger the trio pre-compute process
@@ -1416,11 +1602,12 @@ const updateRelative = async (type,jsonData) => {
                 var indSColl = db.collection(indSampCollection);
                 var concatStr = id.toString();
 
-                var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'state':{$ne:'unassigned'}}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","panelType":"$panelType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-",concatStr,"$panelType"]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
+                // FileType included in trioLocalID
+                var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'state':{$ne:'unassigned'}}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","FileType":"$FileType","panelType":"$panelType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-","$FileType","-",concatStr,"$panelType"]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
 
                 var insertArr = await scanTrioCursor(trioGroupCursor,id);
 
-                var trColl = db.collection(trioCollection);
+                
                 // check if there are any entries for family id and then insert.
                 await trColl.insertMany(insertArr);
 
@@ -1438,7 +1625,9 @@ const updateRelative = async (type,jsonData) => {
                     entityLog.debug("Trio process in updateRelative");
                     entityLog.debug(doc);
                     var localID = doc['TrioLocalID'];
-                    entityLog.debug(localID);
+                    entityLog.debug(`Invoking trio controller script:${trioLaunchScript}`);
+                    entityLog.debug(`Family ID is ${id}`);
+                    entityLog.debug(`localID is ${localID}`);
                     const trioChildProc = spawn.fork(trioLaunchScript,['--family_id',id, '--trio_local_id', localID],{'env':process.env});
                 }
                 
@@ -1997,8 +2186,10 @@ const scanTrioCursor = async (trioGroupCursor,familyId) => {
         var insertArr = [];
         while( await trioGroupCursor.hasNext()) {
             var doc = await trioGroupCursor.next();
+            var trioStat = doc['TrioStatus'];
             var trioArr = doc['trio'];
-            if ( trioArr.length > 2 ) {
+            // Do not include trio ID which are already pre-computed
+            if ( trioArr.length > 2  && trioStat != "completed" ) {
                 var newDoc = {};
                 newDoc['TrioLocalID'] = doc['_id']['trioLocalID'];
                 newDoc['familyID'] = familyId;
@@ -2052,6 +2243,8 @@ const  getFamTrio = async(famId) => {
         var famColl = db.collection(familyCollection);
         famId = parseInt(famId);
 
+        console.log(`Function : getFamTrio`);
+        console.log(`famId:${famId}`);
         var doc = await famColl.findOne({_id:famId,'pedigree.Node_Key':{$in:[0,1,2]}},{'projection':{'pedigree.Node_Key':1,'pedigree.IndividualID':1}});
 
         var indId = [];
@@ -2077,6 +2270,8 @@ const fetchTrioCounter = async(famId) => {
             const db = client.db(dbName);
             var indSColl = db.collection(indSampCollection);
             var famIndArr = await getFamTrio(famId);
+            
+            console.log(famIndArr);
             
             var trioCursor = await indSColl.aggregate([{$match:{'individualID':{$in:famIndArr},'trio':1,'state':{$ne:'unassigned'}}},{$group:{_id:"$individualID"}},{$count:'trio_counter'}]);
             
@@ -2137,6 +2332,69 @@ const checkTrioMember = async(indId,id) => {
         throw err;
     }
 }
+
+// Create an entry in anno history collection for the specific version
+// Rename anno collection 
+const renameColl = async (existColl,newColl,annoHistColl,hist_obj) => {
+    try {
+        var client = getConnection();
+        const db = client.db(dbName);
+        var count = await db.collection(existColl).count();
+        // archive collection only if there are entries.
+        if ( count > 0 ) {
+            await db.collection(annoHistColl).insertOne(hist_obj);
+            await db.collection(existColl).rename(newColl);
+        }
+
+        return "Success";
+    } catch(err) {
+        throw err;
+    }
+};
+
+
+const checkFileState = async(db,distinctFID,annoVer) => {
+    try {
+        var data = [];
+        for (const checkFileID of distinctFID) {
+            var statsColl = db.collection(importStatsCollection);
+            // anno_ver will be "" for the existing samples.
+            var query = {"fileID":checkFileID.toString(),"status_description" :"Import Request Completed","anno_ver":{$in:[annoVer,""]}};
+            console.log("Logging the query statement below ----- ");
+            console.log(query);
+            var idExist = await statsColl.findOne(query);
+            console.log(idExist);
+            if ( idExist != null ) {
+                data.push(checkFileID);
+            }
+        }
+        return data;
+    } catch(err) {
+        throw err;
+    }
+}
+async function getuDateId (db,fID) {
+    try {
+        console.log("******************************");
+        console.log("getuDateId -------------------");
+        console.log(`Arguments ${fID}`);
+        var statsColl = db.collection(importStatsCollection);
+        //console.log(fIDStr);
+        var query = {'fileID':fID,"status_description" : "Import Request Completed"};
+        console.log("Logging the query statement ");
+        console.log(query);
+        var uDateId = await statsColl.findOne(query,{'projection':{_id:1}});
+        console.log(`**************** ${uDateId}`);
+        if ( uDateId != null ) {
+            //createLog.debug(`uDateId:${uDateId}`);
+            console.log(`uDateId:${uDateId}`);
+            uDateId = uDateId._id;
+        }
+        return uDateId;
+    } catch(err) {
+        throw err;
+    }
+}
 /*
 async function createConnection() {
     const url = `mongodb://${host}:${port}`;
@@ -2145,4 +2403,4 @@ async function createConnection() {
 }
 */
 
-module.exports = { initialize,initializeLogLoc,checkApiUser, storeMultiple, checkProband, updateData, readData, getAttrData, createDoc, createFamily, assignInd, addPedigree, showPedigree, updateRelative, updateFamily, getPIData, getFamily ,getResultCollObj, getUnassignedInd, checkIndFilter, removeRelative, getDefinedRelatives, getInheritanceData, getRelativeData , getFamilyPIData, unassignRelative ,checkTrioQueue, getTrioCodes,getTrioFamily,getTrioMeta,getTrioFamilyOld,updateFamilySid,updateTrio,getFamTrio,checkTrioMember,triggerAssemblySampTrio,trioVarAnno,trioQueue };
+module.exports = { initialize,initializeLogLoc,checkApiUser, storeMultiple, checkProband, updateData, readData, getAttrData, createDoc, createFamily, assignInd, addPedigree, showPedigree, updateRelative, updateFamily, getPIData, getFamily ,getResultCollObj, getUnassignedInd, checkIndFilter, removeRelative, getDefinedRelatives, getInheritanceData, getRelativeData , getFamilyPIData, unassignRelative ,checkTrioQueue, getTrioCodes,getTrioFamily,getTrioMeta,getTrioFamilyOld,updateFamilySid,updateTrio,getFamTrio,checkTrioMember,triggerAssemblySampTrio,trioVarAnno,renameColl,trioQueue , reannoqueue};

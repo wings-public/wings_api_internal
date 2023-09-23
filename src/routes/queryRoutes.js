@@ -3,7 +3,7 @@ const runningProcess = require('is-running');
 var path = require('path');
 
 const configData = require('../config/config.js');
-const { db : {host,port,dbName,resultCollection,variantQueryCounts} } = configData;
+const { db : {host,port,dbName,resultCollection,variantQueryCounts,reqTrackCollection} } = configData;
 
 const getConnection = require('../controllers/dbConn.js').getConnection;
 const getResColl = require('../controllers/entityController.js').getResultCollObj;
@@ -40,7 +40,14 @@ const queryRoutes = (app) => {
                     throw "Required parameters missing for var_disc request type";
                 }
             } else if ( jsonData['trio']) {
-                if ( !jsonData['trio']['trioLocalID'] || !jsonData['trio']['trio_code'] ) {
+                console.log("********************************")
+                console.log("queryRoutes");
+                console.log("********************************")
+                if ( jsonData['trio']['inheritance']) {
+                    if ( !jsonData['trio']['trioLocalID']) {
+                        throw "trioLocalID expected for Trio inheritance queries"
+                    }
+                } else if ( !jsonData['trio']['trioLocalID'] || !jsonData['trio']['trio_code'] ) {
                     throw "trioLocalID and trio_code are expected for trio filter queries";
                 } 
             } else {
@@ -82,6 +89,7 @@ const queryRoutes = (app) => {
            console.log("queryRoutes - Logging json data");
            console.log(jsonReqData);
            console.log(queryScript);
+           console.log("Forked query script")
            var subprocess = spawn.fork(queryScript,['--post_json',jsonReqData]);
 
            //var subprocess = spawn.fork(queryScript,['--json',jsonFile]);
@@ -95,6 +103,7 @@ const queryRoutes = (app) => {
                    if ( jsonData['var_disc']) {
                        res.status(200).json({"pid":-1,'centerId':jsonData['centerId'], 'hostId': jsonData['hostId']});
                    } else {
+                       // headers twice : add condition to check if the filter is not trio inheritance filter
                        res.status(200).json({"pid":-1});
                    }
                    
@@ -114,8 +123,17 @@ const queryRoutes = (app) => {
                             //console.log("PID After calculations "+pid)
                             res.status(200).json({'pid':pid,'centerId':jsonData['centerId'], 'hostId': jsonData['hostId']});
                         } else {
+                            console.log("********************************")
                             res.status(200).json({'pid':pid});
                         }
+                    }
+
+                    if ( req == "last" ) {
+                        // Add code to kill the child process
+                        setTimeout(() => {
+                            createLog.debug("Done with TIMEOUT ****************");
+                            subprocess.kill()
+                          }, 3000 );
                     }
                     //if ( batch === "batch1" ) {
                     /*if ( batch == 1 ) {
@@ -137,10 +155,10 @@ const queryRoutes = (app) => {
                 }
            });
 
-         setTimeout(() => {
+         /*setTimeout(() => {
             createLog.debug("Done with TIMEOUT ****************");
             subprocess.kill()
-          }, 300000 );
+          }, 300000 );*/
 
            subprocess.on('error', (err) => {
                console.log(`Caught a error signal. Anything to log ${err}`);
@@ -197,18 +215,55 @@ const queryRoutes = (app) => {
             const db = client.db(dbName);
             var resColl = db.collection(resultCollection);
 
-            var filter = {"pid":queryID, "batch" : batchID};
-            //console.dir(filter);
-            var stream = resColl.find(filter,{'projection': {'_id':0,'batch':1,'lastBatch':1,'hostId' : 1,'centerId' : 1,'documents':1,'assembly_type':1,'result_type':1 } } ).stream();
+            var reqTrColl = db.collection(reqTrackCollection);
+            
+            // fetch the request track document
+            console.log("queryID is "+queryID)
+            var doc = await reqTrColl.findOne({'_id':queryID});
+            console.log(doc)
+            if ( doc ) {
+                var created = doc.createdAt;
+                var ttl = process.env.MONGO_RESULT_TTL;
+                // get current time
+                var currDate = new Date();
+                // diff current time - createdAt time = seconds
+                console.log("created "+created)
+                console.log("currDate "+currDate)
+                var seconds = (currDate.getTime() - created.getTime()) / 1000;
+                console.log(seconds)
+                // if seconds >= ttl seconds, then status to expired.
+                console.log("seconds difference "+seconds)
+                console.log("Defined ttl "+ttl)
+                
+                var no_var_stat = await reqTrColl.findOne({_id: queryID,'status':'no-variants'});
+                console.log("Logging no variant status")
+                console.log(no_var_stat)
 
-            stream.on('data', (data) => {
-                //console.log(data);
-                res.write(JSON.stringify(data));
-            });
+                if ( seconds >= ttl ) {
+                    // update the status
+                    await reqTrColl.updateOne({'_id':queryID},{$set:{'status':'expired'}})
+                    res.send(JSON.stringify({'status':'expired'}));
+                } else if (no_var_stat) {
+                    res.send(JSON.stringify({'status':'no-variants'}));
+                } else {
+                    await reqTrColl.updateOne({'_id':queryID},{$set:{'status':'fetched'}});
+                    // first include a filter to check if the 'pid' is not expired
+                    var filter = {"pid":queryID, "batch" : batchID};
+                    //console.dir(filter);
+                    var stream = resColl.find(filter,{'projection': {'_id':0,'batch':1,'lastBatch':1,'hostId' : 1,'centerId' : 1,'documents':1,'assembly_type':1,'result_type':1 } } ).stream();
 
-            stream.on('end', (data) => {
-                res.end();
-            });
+                    stream.on('data', (data) => {
+                        //console.log(data);
+                        res.write(JSON.stringify(data));
+                    });
+
+                    stream.on('end', (data) => {
+                        res.end();
+                    });
+                        
+                }
+            }
+            
 
         } catch(err) {
             //console.log("Error in route endpoint query");
@@ -256,7 +311,9 @@ const queryRoutes = (app) => {
                }
            }
            //console.dir(jsonData,{"depth":null});
+           
            var queryScript = path.join(basePath,'query','sampleFilterQuery.js');           
+           console.log("Calling "+queryScript);
               
            req.on('error', (err) => {
                next(`${err}`);

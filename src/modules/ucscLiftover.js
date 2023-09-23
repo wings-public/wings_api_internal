@@ -103,12 +103,13 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         // Note : The section below has to be customized for development
         // Chain files are sequence dictionary are available in development
         // Below section, checks and downloads these files in production and also in centers.
+        // commented in DEV
 
-        //var stat1 = await checkDownloadFile(chainurl,chainFile);
-        //var stat2 = await checkDownloadFile(fastaurl,fastaFile);
+        var stat1 = await checkDownloadFile(chainurl,chainFile);
+        var stat2 = await checkDownloadFile(fastaurl,fastaFile);
 
         //console.log("CALL create sequence dictionary");
-        //var getSeqDict = await execSeqDict(fastaFile,dictFile);
+        var getSeqDict = await execSeqDict(fastaFile,dictFile);
         
         
         // split variant

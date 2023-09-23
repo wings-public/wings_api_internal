@@ -271,7 +271,8 @@ const consolidateValidation = async (fileArr,createLog) =>
 
                         // check if it is http based url or it is a server location file with /
                         var urlRe = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/i;
-                        var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz|bam|idx|bai|bam.gz|gvcf|gvcf.gz|fastq|cram)$/i;
+                        // 05/07/2022 - Including fix to parse vcf.gz.tbi file type extensions.
+                        var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz|bam|idx|bai|bam.gz|gvcf|gvcf.gz|fastq|cram|tbi)$/i;
 
                         if ( fieldVal.match(urlRe) ) {
                             // download and check.if not valid, set to invalid

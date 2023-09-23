@@ -108,8 +108,9 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         }
         dictFile = fastaFile+'.dict';
 
+        // commented in DEV
         //console.log("CALL create sequence dictionary");
-        //var getSeqDict = await execSeqDict(fastaFile,dictFile);
+        var getSeqDict = await execSeqDict(fastaFile,dictFile);
 
         // split variant
         /*var data = variant.split('-');
@@ -151,9 +152,10 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
 
 
         // check if files for liftover exists
+        // commented in DEV
 
-        //var stat1 = await checkDownloadFile(chainurl,chainFile);
-        //var stat2 = await checkDownloadFile(fastaurl,fastaFile);
+        var stat1 = await checkDownloadFile(chainurl,chainFile);
+        var stat2 = await checkDownloadFile(fastaurl,fastaFile);
 
         try {
             

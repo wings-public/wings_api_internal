@@ -138,6 +138,8 @@ async function updateAnnotations(db,sid,createLog,assemblyType) {
             var gnomadObj = {};
             // All the fields of gnomAD will be added to the core fields for filtering.
             if ( annotations['gnomAD'] ) {
+                //console.log("gnomAD present")
+                //console.log(doc);
                 //gnomadObj['AF_all'] = gnomad['AF'];
                 //gnomadObj['AN_all'] = gnomad['AN'];
                 gnomadObj = annotations['gnomAD'];
@@ -148,16 +150,35 @@ async function updateAnnotations(db,sid,createLog,assemblyType) {
             //console.dir(gnomad);
             
             if ( annotations['CADD_PhredScore'] ) {
+                //console.log("CADD score present")
                 setFilter['phred_score'] = annotations['CADD_PhredScore'];
             }
 
             if ( annotations['ClinVar'] ) {
+                //console.log("ClinVar present");
                 var clinVar = annotations['ClinVar'];
                 //console.log("Logging Clinvar Annotations ");
                 //console.dir(clinVar,{"depth":null});
                 setFilter['CLNSIG'] = clinVar['CLNSIG'];
                 setFilter['GENEINFO'] = clinVar['GENEINFO'];
             }
+
+            // check and add RNA Central annotations
+            if ( annotations['RNACentral'] ) {
+                //console.log("ClinVar field present");
+                setFilter['RNACentral'] = annotations['RNACentral'];
+            }
+
+            if ( annotations['regulatory_feature_consequences'] ) {
+                //console.log("regulatory_feature_consequences present")
+                setFilter['regulatory_feature_consequences'] = annotations['regulatory_feature_consequences'];
+            }
+    
+            if ( annotations['motif_feature_consequences'] ) {
+                //console.log("motif_feature_consequences present")
+                setFilter['motif_feature_consequences'] = annotations['motif_feature_consequences'];
+            }
+
             
             //console.dir(setFilter,{"depth":null});
 
@@ -169,6 +190,7 @@ async function updateAnnotations(db,sid,createLog,assemblyType) {
                 //console.log("Transcript is "+transcript);
                 // transcripts to be added to core Annotations
                 var transcriptRe = /^NM|^NR|^NP/g;
+                // consider only NM, NR and NP transcripts for core filtering
                 if ( transcript.match(transcriptRe) ) {
                     //console.log("MATCH FOUND "+transcript);
                     //console.dir(geneObj);
@@ -178,12 +200,41 @@ async function updateAnnotations(db,sid,createLog,assemblyType) {
                     coreGeneObj['codons'] = geneObj['codons'];
                     coreGeneObj['gene_id'] = geneObj['gene_id'];
                     coreGeneObj['csn'] = geneObj['csn'];
+                    if ( 'maxentscan_ref' in geneObj ) {
+                        coreGeneObj['maxentscan_ref'] = geneObj['maxentscan_ref'];
+                    }
+                    if ( 'maxentscan_alt' in geneObj ) {
+                        coreGeneObj['maxentscan_alt'] = geneObj['maxentscan_alt']
+                    }
+                    if ( 'maxentscan_diff' in geneObj ) {
+                        coreGeneObj['maxentscan_diff'] = geneObj['maxentscan_diff']
+                    }
                     //console.dir(coreGeneObj);
                     //setFilter['gene_annotations'] = coreGeneObj;
                     // store the transcript Annotations
                     coreGeneAnno.push(coreGeneObj);
+                } else if ( transcript == "" ) {
+                    var consTerms = geneObj['consequence_terms'];
+                    var intergenic = 0;
+                    for ( var idx in consTerms ) {
+                        var consTerm = consTerms[idx];
+                        if ( consTerm == "intergenic_variant" ) {
+                            intergenic = 1;
+                        }
+                    }
+                    // required to handle intergenic_variants with empty transcript_id
+                    if ( intergenic == 1 ) {
+                        coreGeneObj['transcript_id'] = geneObj['transcript_id'];
+                        coreGeneObj['impact'] = geneObj['impact'] || "";
+                        coreGeneObj['consequence_terms'] = geneObj['consequence_terms'] || [];
+                        coreGeneObj['codons'] = geneObj['codons'] || null;
+                        coreGeneObj['gene_id'] = geneObj['gene_id'] || "";
+                        coreGeneObj['csn'] = geneObj['csn'] || "";
+                    }
+                    coreGeneAnno.push(coreGeneObj);
+
                 }
-                // consider only NM, NR and NP transcripts for core filtering
+                
             }
             //console.dir(coreGeneAnno,{"depth":null});
             // Array of transcript-gene Annotations

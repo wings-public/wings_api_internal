@@ -18,23 +18,31 @@ const getAnnotationStatus = require('../controllers/annotationController.js').ge
 const downloadData = require('../controllers/annotationController.js').downloadData;
 const verifyCS = require('../controllers/annotationController.js').verifyCS;
 const updateAnnotations = require('../controllers/annotationController.js').updateAnnotations;
+
 //var db = require('../controllers/db.js');
 (async function () {
     try {
         argParser
             .version('0.1.0')
-            .option('-s, --sample <vcf1>', 'sample_file or sample_url')
             .option('-vcf, --vcf_file_id <id1>', 'vcf file ID')
-            .option('-b, --batch <batch>', 'batch size for bulkUpload')
+            .option('--import_id, --import_id <uDateId>', 'import id for the request')
             .option('-p, --pid <pid>', 'batch size for bulkUpload')
+            .option('-m, --anno_type <VEP or CADD>', 'type of annotation')
+            .option('-f, --field_anno <field>', 'annotation field type')
             .option('-a, --assemblyType <assemblyType>', 'assembly type or reference build used')
         argParser.parse(process.argv);
 
-        var sample = argParser.sample;
         var fileId = argParser.vcf_file_id;
-        var batchSize = argParser.batch;
         var pid = argParser.pid;
         var assemblyType = argParser.assemblyType;
+        var uDateId = parseInt(argParser.import_id);
+        
+        console.log("importControllerAnno.js");
+        console.log(`fileId:${fileId} uDateId:${uDateId} assemblyType:${assemblyType}`);
+        // annotation type - high level (VEP or CADD)
+        var annoType = argParser.anno_type;
+        // comma separated field type
+        var annoFields = argParser.field_anno;
 
         if ( assemblyType == "hg19" ) {
             assemblyType = "GRCh37";
@@ -48,35 +56,18 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
         var parsePath = path.parse(__dirname).dir;
 
         //var logFile = path.join(parsePath,'import','log',`import-controllers-logger-${fileId}-${pid}.log`);
-        var logFile = `import-controllers-logger-${fileId}-${pid}.log`;
+        var logFile = `import-control-reanno-logger-${fileId}-${pid}.log`;
         var createLog = loggerMod.logger('import',logFile);
 
         // IMPORT
 
         var db = require('../controllers/db.js');
-        var importScript = path.join(parsePath,'import','importSample.js');
                 
-        createLog.debug("Import path is now "+importScript);
-        createLog.debug("Import Sample Started for ID "+fileId);
-       
-        var status = {'status_description' : 'Import Sample - Started', 'log_location' : logFile,'status_id':2, 'finish_time': new Date() };
-        var pushSt = {'status_log': {status:"Import Sample - Started",log_time: new Date()}};
-        await updateStatus(db,pid,status,pushSt);
-
-        var subprocess1 = spawn.fork(importScript, ['-s',sample,'--vcf_file_id', fileId, '--assembly', assemblyType, '--pid',pid, '--batch', batchSize] );
-
-        var procPid = subprocess1.pid;
-        //res.status(200).json({"id":procPid,"message":"Import Scheduled"});
-
-        // import process completed
-        await closeSignalHandler(subprocess1);
-        
-        var status = {'status_description' : 'Import Sample - Completed','status_id':3, 'finish_time': new Date()};
-        var pushSt = {'status_log': {status:"Import Sample - Completed",log_time: new Date()}};
-        await updateStatus(db,pid,status,pushSt);
-
-        createLog.debug("Import Sample Completed");
         // Existing Annotations
+        // may be not required : check
+        // useful if the variant already has updated fields. ( add criteria in script )
+        // for now : comment the below section of code
+
         var annoScript = path.join(parsePath,'import','updateExistingAnnotations.js');
         createLog.debug("Annotation Script Path is now "+annoScript);
         var subprocess2 = spawn.fork(annoScript, ['--sid',fileId,'--assembly', assemblyType] );
@@ -87,7 +78,10 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
         //var status = {'status' : 'Update Existing Annotations - Completed'};
         //await updateStatus(db,pid,status);
         createLog.debug("Annotation Update Process Completed");
-        // Novel Variants
+
+        // criteria to get novel variants has to be changed.
+        // Novel Variants. include type of annotation
+        createLog.debug("Starting getNovelVariants");
         var nScript = path.join(parsePath,'import','getNovelVariants.js');
         var subprocess3 = spawn.fork(nScript, ['--sid',fileId,'--assembly', assemblyType] ); 
 
@@ -101,10 +95,10 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                 createLog.debug("Logging the size value below");
                 createLog.debug(size1); 
 
-                createLog.debug(`Retrieved Unique Variants - Size ${size1}`);
+                createLog.debug(`Retrieved Reannotate Unique Variants - Size ${size1}`);
                 var status = {'status_description' : 'Retrieved Unique Variants','status_id':4,'finish_time': new Date()};
-                var pushSt = {'status_log': {status:"Retrieved Unique Variants",log_time: new Date()}};
-                await updateStatus(db,pid,status,pushSt);
+                var pushSt = {'status_log': {status:"Retrieved Reannotate Unique Variants",log_time: new Date()}};
+                await updateStatus(db,uDateId,status,pushSt);
 
                 // sleep value will be configured based on the size of novel variants file
                 if ( size1 ) {
@@ -120,13 +114,20 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
 
                     //var response = await triggerAnnotationStream(token,fileId,zipFile);
                     
+                    var defaultAnno = 'false';
                     createLog.debug("Received token from the API Call. Trigger Process to start the Annotations");
-                    var response = await triggerAnnotationStreamPipeline(token,db,pid,data,zipFile,fileId,assemblyType,createLog);
+                    var response = "";
+                    if ( annoType == "Def" ) {
+                        response = await triggerAnnotationStreamPipeline(token,db,uDateId,data,zipFile,fileId,assemblyType,createLog);
+                    } else {
+                        response = await triggerAnnotationStreamPipeline(token,db,uDateId,data,zipFile,fileId,assemblyType,createLog,defaultAnno,annoType,annoFields);
+                    }
+                    
                     createLog.debug("What is the response sent by this function");
                     createLog.debug(response);
-                    var status = {'status_description' : 'Annotation Process Started','status_id':5,'finish_time': new Date()};
-                    var pushSt = {'status_log': {status:"Annotation Process Started",log_time: new Date()}};
-                    await updateStatus(db,pid,status,pushSt);
+                    var status = {'status_description' : 'ReAnnotation Process Started','status_id':5,'finish_time': new Date()};
+                    var pushSt = {'status_log': {status:"ReAnnotation Process Started",log_time: new Date()}};
+                    await updateStatus(db,uDateId,status,pushSt);
 
                     createLog.debug("Logging the response received from the triggerAnnotationStream function");
                     createLog.debug(response);
@@ -148,9 +149,9 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
 
                     //var intervalTime = 900000; // milliseconds(15 minutes)
                     var intervalObj = setInterval( () => {
-                        getAnnotationStatus(token,fileId,db,pid).then( (resp) => {
+                        getAnnotationStatus(token,fileId,db,uDateId).then( (resp) => {
                             //console.log("Checking for the Annotation Status");
-                            console.log("Logging the response from annotation status");
+                            console.log("Logging the response from annotation status")
                             console.log(resp);
                             createLog.debug("Checking for Annotation Status");
                             // remove file only if it exists
@@ -171,10 +172,15 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             console.log(respObj);
                             
                             if ( respObj && (respObj['message']['status'] == "Annotation Completed" ) ) {
+                                // update current annotation version
+                                var annoVer = "";
+                                if ( process.env.CURR_ANNO_VER ) {
+                                    annoVer = process.env.CURR_ANNO_VER;
+                                }
 
-                                var status = {'status_description' : 'Annotation Process Completed','status_id':7,'finish_time': new Date()};
-                                var pushSt = {'status_log': {status:"Annotation Process Completed",log_time: new Date()}};
-                                updateStatus(db,pid,status,pushSt).then ( () => {});
+                                var status = {'status_description' : 'Re-Annotation Process Completed','status_id':7,'finish_time': new Date(), "anno_ver": annoVer};
+                                var pushSt = {'status_log': {status:"Re-Annotation Process Completed",log_time: new Date()}};
+                                updateStatus(db,uDateId,status,pushSt).then ( () => {});
 
                                 createLog.debug("Logging the response from Annotation Status codeblock");
                                 var respJson = JSON.stringify(respObj);
@@ -210,7 +216,11 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                                         verifyCS(dest1,dest2).then( (status) => {
                                             createLog.debug("3:checksum validated. Proceed to update novel Annotations");
                                             // update Annotations
-                                            updateAnnotations(fileId,dest1,assemblyType).then((status) => {
+                                            var newAnno = "reannotate"
+                                            if ( annoType == "Def" ) {
+                                                newAnno = "";
+                                            }
+                                            updateAnnotations(fileId,dest1,assemblyType,newAnno).then((status) => {
                                                 createLog.debug("4:novel Annotations updated");
                                                 process.exit(0);
                                             })
@@ -235,9 +245,9 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             } else if ( respObj && (respObj['message']['status'] == "Annotation InProgress" ) ) {
 				                createLog.debug(respObj['message']['stdout']);
                                 createLog.debug("Annotation InProgress");
-                                var status = {'status_description' : 'Annotation InProgress','status_id':6,'finish_time': new Date()};
-                                var pushSt = {'status_log': {status:"Annotation InProgress",log_time: new Date()}};
-                                updateStatus(db,pid,status,pushSt).then ( () => {});
+                                var status = {'status_description' : 'ReAnnotation InProgress','status_id':6,'finish_time': new Date()};
+                                var pushSt = {'status_log': {status:"ReAnnotation InProgress",log_time: new Date()}};
+                                updateStatus(db,uDateId,status,pushSt).then ( () => {});
                             } else if (respObj && (respObj['message']['status'] == "Annotation Error" ) ) {
                                 var errInfo = respObj['message']['errInfo'];
                                 var appendErr = errInfo || "failed due to unknown reasons.Check Annotation logs for further details";
@@ -247,15 +257,9 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                                 createLog.debug("Clearing the Interval as the Annotation Status need not be monitored further");
                                 createLog.debug("Annotation Error "+errInfo1);
                                 createLog.debug(respObj['message']['stdout']);
-                                updateStatus(db,pid,status,pushSt).then ( (resp) => {
+                                updateStatus(db,uDateId,status,pushSt).then ( (resp) => {
                                     clearInterval(intervalObj);
-                                    updateSampleSheetStat(db,fileId,"import failed").then( (resp1) => {
-                                        process.exit(1);
-                                    })
-                                    .catch( (err) => {
-                                        createLog.debug("Error in updating sample sheet status");
-                                        process.exit(1);
-                                    })
+                                    process.exit(1);
                                 }).catch( (err) => {
                                     createLog.debug("Error in updating Annotation error status "+err);
                                     clearInterval(intervalObj);
@@ -271,15 +275,9 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             var pushSt = {'status_log': {status:"Error",log_time: new Date()}};
                             createLog.debug("Clearing the Interval as the Annotation Status need not be monitored further");
                             createLog.debug("Annotation Error "+err);
-                            updateStatus(db,pid,status,pushSt).then ( (resp) => {
+                            updateStatus(db,uDateId,status,pushSt).then ( (resp) => {
                                 clearInterval(intervalObj);
-                                updateSampleSheetStat(db,fileId,"import failed").then( (resp1) => {
-                                    process.exit(1);
-                                })
-                                .catch( (err) => {
-                                    createLog.debug("Error in updating sample sheet status");
-                                    process.exit(1);
-                                })
+                                process.exit(1);
                             }).catch( (err) => {
                                 createLog.debug("Error in updating Annotation error status "+err);
                                 clearInterval(intervalObj);
@@ -298,14 +296,8 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
 		            var errInfo = "Annotation Process Error "+err1;
 		            var status = {'status_description':'Error','status_id': 9, 'error_info' : errInfo,'finish_time': new Date() };
 		            var pushSt = {'status_log': {status:"Error",log_time: new Date()}};
-                    updateStatus(db,pid,status,pushSt).then ( (resp) => {
-                        updateSampleSheetStat(db,fileId,"import failed").then( (resp1) => {
-                            process.exit(1);
-                        })
-                        .catch( (err) => {
-                            createLog.debug("Error in updating sample sheet status");
-                            process.exit(1);
-                        })
+                    updateStatus(db,uDateId,status,pushSt).then ( (resp) => {
+                        process.exit(1);
 	                }).catch( (err) => {
 	                    createLog.debug("Error in updating Annotation error status "+err);
 			            process.exit(1);
@@ -342,29 +334,13 @@ async function updateStatus(db,search,update,pushStat) {
             set = {$set : update };
         }
         
-        /*console.log("##############################################");
+        console.log("##############################################");
         console.log("Request to update the status for the Import");
         console.log(id);
         console.log(set);
-        console.log("##############################################");*/
+        console.log("##############################################");
         var statsColl = db.collection(importStatsCollection);
         var res = await statsColl.updateOne(id,set);
-        return "success";
-    } catch(err) {
-        throw err;
-    }
-}
-
-async function updateSampleSheetStat(db,id,stat) {
-    try {
-
-        console.log("Received request and updating status for sample sheet entry");
-        console.log("FILEID is "+ id);
-        console.log("STATUS is "+stat);
-        var search = { fileID: id};
-        var update = { $set : {status: stat}};
-        var sampColl = db.collection(sampleSheetCollection);
-        var res = await sampColl.updateOne(search,update);
         return "success";
     } catch(err) {
         throw err;

@@ -212,6 +212,6 @@ process.on('uncaughtException', function(err) {
 })
 
 app.get('/', (req, res) =>
-    res.send(`${displayVersion} Version ${releaseNum} - Node and express server is running on port ${expressPort}`)
+    res.send(`${displayVersion} Version ${releaseNum} - WiNGS API with Annotation versioning support is running on port ${expressPort}`)
 );
 

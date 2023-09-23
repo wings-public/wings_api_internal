@@ -75,7 +75,9 @@ const dev = {
    indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
    variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
    variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
-   trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+   trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
+   reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
+   annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
  }
 };
 
@@ -142,7 +144,9 @@ const test = {
     indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
     variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
     variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
-    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
+    reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
+    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
   }
  };
 
@@ -209,7 +213,9 @@ const test = {
     indSampCollection : process.env.MONGO_IND_SAMP_COLL || 'wingsIndSampColl',
     variantQueryCounts : process.env.MONGO_Q_CNT_ASYNC || 'variantQueryCntAsync',
     variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
-    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl'
+    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
+    reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
+    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
   }
  };
 

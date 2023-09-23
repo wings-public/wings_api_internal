@@ -31,6 +31,7 @@ var client;
         .version('0.1.0')
         .option('-i, --sid <sid>', 'sample for which novel variants are retrieved')
         .option('--assembly, --assembly <GRCh37,GRCh38>', 'assembly type to decide the import collection to be used for import')
+        .option('-c, --custom <custom>', 'customized criteria to retrieve novel variants')
     argParser.parse(process.argv);
 
 
@@ -87,8 +88,10 @@ var client;
     try {
         //const logDir = 'log';
         var vFile = 'novelVariants-'+sid+'.vcf';
+        
         var variantsFile;
         variantsFile = path.join(logLoc,'import','samples','tmp',vFile);
+        createLog.debug("Logging variant file "+variantsFile);
         /*if ( instance == "dev" ) {
             variantsFile = path.join(__dirname,logDir, vFile);
         } else {
@@ -118,13 +121,39 @@ async function getVariantsToAnnotate(db,sid,createLog,variantsFile,assemblyType)
     sid = parseInt(sid);
     var variantAnnoCollection;
     var importCollection;
+
+    // Versioned anno : archived annotation collection to be used for getting novel variants
+    try {
+    var verAnnoColl1;var verAnnoColl2;var annoVer;
+
+    if ( process.env.HIST_ANNO_VER ) {
+        console.log("History Anno versioning true");
+        annoVer = process.env.HIST_ANNO_VER;
+        verAnnoColl1 = variantAnnoCollection1+annoVer;
+        //variantAnnoCollection1 = verAnnoColl1;
+        //console.log(variantAnnoCollection1);
+        verAnnoColl2 = variantAnnoCollection2+annoVer;
+        //variantAnnoCollection2 = verAnnoColl2;
+        //console.log(variantAnnoCollection2)
+    }
+} catch(err) {
+    console.log(err);
+}
+
     if ( assemblyType == "GRCh37" ) {
         importCollection = importCollection1;
         variantAnnoCollection = variantAnnoCollection1;
+        if ( process.env.HIST_ANNO_VER ) {
+            variantAnnoCollection = verAnnoColl1;
+        }
     } else if ( assemblyType == "GRCh38" ) {
         importCollection = importCollection2;
         variantAnnoCollection = variantAnnoCollection2;
+        if ( process.env.HIST_ANNO_VER ) {
+            variantAnnoCollection = verAnnoColl2;
+        }
     }
+
 
     var importColl = db.collection(importCollection);
     createLog.debug("importCollection is "+importColl);
@@ -133,45 +162,84 @@ async function getVariantsToAnnotate(db,sid,createLog,variantsFile,assemblyType)
     var matchFilter =  {$match : {'fileID' : {$eq:sid }, 'non_variant' : 0} } ;
 
     var lookupFilter = { $lookup : { 'from':variantAnnoCollection,'localField':'var_key','foreignField': '_id', 'as':'annotation_data' } };
-    var annoMatch = { $match: {'annotation_data.annotated' : 0} };
+
+    //console.log("matchFIlter");
+    //console.log(matchFilter);
+    //console.log("lookupFilter");
+    //console.log(lookupFilter);
+    // Fix : 04/07/2022 
+    //var annoMatch = { $match: {'annotation_data.annotated' : 0} };
 
 
     // Sample Aggregation
     // db.getCollection('wingsVcfData').aggregate([{$match: {sid: {$eq:930 }}},   {$lookup: { from: "variantAnnotations",localField: "var_key",foreignField: "_id", as: "annotation_data"     }   } , {$match :{'annotation_data.annotated':0} }])
 
     var wFd = fs.createWriteStream(variantsFile);
-    var data = await importColl.aggregate([ matchFilter,lookupFilter,annoMatch]);
+    //var data = await importColl.aggregate([ matchFilter,lookupFilter,annoMatch]);
+    //console.log(matchFilter);
+    //console.log(lookupFilter);
+    //createLog.debug(matchFilter);
+    //createLog.debug(lookupFilter);
+
+    var data = await importColl.aggregate([ matchFilter,lookupFilter]);
 
     var bulkOps = [];
     while ( await data.hasNext() ) {
         const doc = await data.next();
-        var id = doc._id;
-        var var_key = doc.var_key; // chr-pos-ref-alt
-        var arr = var_key.split('-');
-        var re = /chr/g;
-
-        var vcf_chr = doc.vcf_chr;
-        var chr = vcf_chr;
-        if ( vcf_chr.match(re)) {
-            chr = vcf_chr.replace(re, '');
+        //console.log(doc);
+        // Fix : 04/07/2022 Applying downstream filtering for annotated variants
+        // invert condition to re-annotate
+        //if ( ('annotation_data' in doc ) && (doc['annotation_data'][0]['annotated'] == 0 ) ) {
+        //if ( ('annotation_data' in doc ) && (doc['annotation_data'][0]['annotated'] == 1 ) ) {
+        // error handling if annotation_data is not present in doc
+        var annoObj = {};
+        if ( 'annotation_data' in doc ) {
+            annoObj = doc['annotation_data'][0];
+            //console.log(annoObj);
         }
-        //var chr = vcf_chr.replace(re, '');
-        //console.log(`chr is ${chr}`);
-        //var chr = arr[0];
-        if ( chr == "23" ) {
-            chr = 'X';
-        } else if ( chr == "24" ) {
-            chr = 'Y';
-        } else if (chr == "25" ) {
-            chr = 'M';
+        
+        // check if 'reannotation' key does not exist - novel criteria
+        // annotated = 0 - default import request
+        // splice ai - splice ai key ( future )
+        //if ( ('annotation_data' in doc ) && ( (!('reannotation'  in annoObj) ) || (annoObj['annotated'] == 0) )) {
+        //if ( ('annotation_data' in doc ) && ( (annoObj['annotated'] == 0) || (!('reannotation'  in annoObj) ) )) {
+        var annoState = 0;
+        if ( process.env.HIST_ANNO_VER ) { 
+            annoState = 1;
         }
 
-        // CADD expects the VCF Input format to be CHROM POS ID REF ALT(ID column can be empty but cannot be missing)
-        var vcfData = chr+'\t'+arr[1]+'\t'+'.'+'\t'+arr[2]+'\t'+arr[3];
-        //console.log("VCF Data "+vcfData);
-        wFd.write(vcfData+'\n');
-        // VCF chr\tpos\t.\tref\alt
-        // vcf format 
+        if ( ('annotation_data' in doc ) &&  (annoObj['annotated'] == annoState) ) {
+            var id = doc._id;
+            //console.log(id);
+            //console.log("Logging novel id ")
+            //console.log(id);
+            var var_key = doc.var_key; // chr-pos-ref-alt
+            var arr = var_key.split('-');
+            var re = /chr/g;
+
+            var vcf_chr = doc.vcf_chr;
+            var chr = vcf_chr;
+            if ( vcf_chr.match(re)) {
+                chr = vcf_chr.replace(re, '');
+            }
+            //var chr = vcf_chr.replace(re, '');
+            //console.log(`chr is ${chr}`);
+            //var chr = arr[0];
+            if ( chr == "23" ) {
+                chr = 'X';
+            } else if ( chr == "24" ) {
+                chr = 'Y';
+            } else if (chr == "25" ) {
+                chr = 'M';
+            }
+
+            // CADD expects the VCF Input format to be CHROM POS ID REF ALT(ID column can be empty but cannot be missing)
+            var vcfData = chr+'\t'+arr[1]+'\t'+'.'+'\t'+arr[2]+'\t'+arr[3];
+            //console.log("VCF Data "+vcfData);
+            wFd.write(vcfData+'\n');
+            // VCF chr\tpos\t.\tref\alt
+            // vcf format 
+        } // annotation check
     }
     wFd.end();
     // listen for finish event and then resolve the promise.

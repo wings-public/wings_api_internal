@@ -5,7 +5,7 @@
  */
 
 const configData = require('../config/config.js');
-const { db : {host,port,dbName,importCollection1,importCollection2,resultCollection,genePanelColl,variantQueryCounts,indSampCollection,trioCollection},app:{instance,liftMntSrc} } = configData;
+const { db : {host,port,dbName,importCollection1,importCollection2,resultCollection,genePanelColl,variantQueryCounts,indSampCollection,trioCollection,reqTrackCollection},app:{instance,liftMntSrc} } = configData;
 const closeSignalHandler = require('../controllers/execChildProcs.js').closeSignalHandler;
 const spawn  = require('child_process');
 const readline = require('readline');
@@ -30,6 +30,7 @@ const getConnection = require('../controllers/dbConn.js').getConnection;
 const createCollection = require('../controllers/dbFuncs.js').createCollection;
 const checkCollectionExists = require('../controllers/dbFuncs.js').checkCollectionExists;
 const createTTLIndex = require('../controllers/dbFuncs.js').createTTLIndex;
+const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
 const getInheritanceData = require('../controllers/entityController.js').getInheritanceData;
 
 ( async function() {
@@ -98,6 +99,8 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                 assemblyInfo['reqAssembly'] = 'hg38';
                 assemblyInfo['reqColl'] = importCollection2;
             }
+            console.log("Logging assembly details ")
+            console.log(queryCollection)
 
             if ( assemblyInfo['reqAssembly'] == "hg19" ) {
                 assemblyInfo['altAssembly'] = "hg38";
@@ -115,6 +118,7 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
         }
         // logical filter based processing
         if ( parsedJson['invoke_type'] == "sample_variant" ) {
+            console.log("Sample Variant ######################");
             logFile = 'querySample-'+process.pid+'.log';
             createLog = loggerMod.logger('query',logFile);
             createLog.debug("Received request for sample_variant");
@@ -128,6 +132,10 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                 var batch = parsedJson['batch_range'] || 100;
                 if ( parsedJson['trio']) {
                     parsedJson['output_columns'] = {'_id': 0,'fileID':0};
+                    //parsedJson['output_columns'] = {'_id': 0,'fileID':0};
+                    if ( parsedJson['trio']['inheritance']) {
+                        parsedJson['output_columns'] = {'_id': 0};
+                    } 
                 } else if ( parsedJson['var_disc']) {
                     // including additional fields
                     parsedJson['output_columns'] = {"_id" : 0, "var_validate" : 0,"pid" : 0,"multi_allelic" : 0, "phred_polymorphism" : 0, "filter" : 0, "alt_cnt" : 0, "ref_depth" : 0, "alt_depth" : 0, "phred_genotype" : 0, "mapping_quality" : 0, "base_q_ranksum" : 0, "mapping_q_ranksum" : 0, "read_pos_ranksum" : 0, "strand_bias" : 0, "quality_by_depth" : 0, "fisher_strand" : 0, "vqslod" : 0, "gt_ratio" : 0, "ploidy" : 0, "somatic_state" : 0, "delta_pl" : 0, "stretch_lt_a" : 0, "stretch_lt_b" : 0, "trio_code" : 0};
@@ -137,6 +145,8 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                 if ( parsedJson['output_columns']) {
                     projection = parsedJson['output_columns'];
                 }
+
+                console.log("Call logicalFilter function")
                 var retFilter = await logicalFilterProcess(db,parsedJson,mapFilter,createLog);
                 //console.log("Logging the initial filter ##########");
                 //console.dir(retFilter,{"depth":null});
@@ -154,8 +164,9 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         var coll1 = db.collection(assemblyInfo['reqColl']); 
                         var batchCnt = 1;
                         //console.log("First request launched with request collection");
-                        var pid = process.pid;
-                        pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
+                        var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        /*var pid = process.pid;
+                        pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);*/
                         // Step 1 : fetch the variants for the requested assembly
                         // Write variants to results collection for requested assembly
                         var totalBatch = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,coll1,createLog,parsedJson, assemblyInfo['reqAssembly'],batchCnt);
@@ -202,8 +213,10 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         var coll1 = db.collection(assemblyInfo['reqColl']); 
                         var batchCnt = 1;
                     
-                        var pid = process.pid;
-                        pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
+                        var pid = await genReqID(reqTrackCollection,db,parsedJson);
+
+                        //var pid = process.pid;
+                        //pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
 
                         // Step 1 : fetch the variants for the requested assembly
                         // =======================================================
@@ -314,9 +327,101 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         }
 
                     }   
+                } else if ( parsedJson['trio']) {
+                    if ( parsedJson['trio']['inheritance'] === "compound-heterozygous" ) {
+                        createLog.debug("Inheritance Trio request")
+                        //console.log("*******************************")
+                        // suitable code section to create index for geneID in result collection
+                        // Function to process filter and write results to resultCollection
+
+                        var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        //var pid = process.pid;
+                        // For inheritance requests, this is just a dummy payload which is sent with the process id. The batch data is not yet loaded.
+                        var payload = { "batch" : 1,
+                                        "pid" : pid,
+                                        "req" : "done"
+                                    };
+      
+                        createLog.debug("Send the immediate response payload")
+                        createLog.debug(payload);
+                        console.log("Sending response payload")
+                        process.send(JSON.stringify(payload));  
+
+                        // 1. Before scanning, write the identified filtered variants to results collection
+                        await trioVarResults(pid,projection,collection,resultCol,batch,retFilter,createLog);
+                        
+                        // ****************** ProbandFather (110) scanned against ProbandMother(101) *****
+                        // 2. started with 110(proband-father) and scanned against 101(proband-mother)
+                        createLog.debug("Invoke trioScanCH function with 101 Father as input. Compare with transcripts of Mom")
+                        var reqFilter = {'pid':pid,'trio_code':"110"}
+                        createLog.debug(reqFilter)
+                        var logRes1 = await trioScanCH(pid,reqFilter,projection,resultCol,"101",createLog);
+                        createLog.debug("Completed-trioScanCH function with 101 Father as input. Compare with transcripts of Mom")
+
+                        // Clone filter and update trio code
+                        var cloneFilter = {...reqFilter};
+                        cloneFilter.trio_code = "101";
+                        createLog.debug("Update the filter with trio_code 101");
+                        
+                        // ****************** ProbandMother (101) scanned against ProbandFather(110) *****
+                        // 3. Repeat the scan. Filter Set : 101, scan against 110
+
+                        //console.log("Logging the CLONE FILTER ****************************************");
+                        //console.dir(cloneFilter,{"depth":null});
+                        createLog.debug(cloneFilter);
+                        createLog.debug("Invoke trioScanCH function with 110 Mother as input. Compare with transcripts of Dad")
+                        var logRes2 = await trioScanCH(pid,cloneFilter,projection,resultCol,"110",createLog);
+
+                        createLog.debug("Completed trioScanCH function with 110 Mother as input. Compare with transcripts of Dad")
+
+                       
+                        // Function to retrieve data from resultCollection,post process and write data (again) to result collection sorted by geneID
+                        // set the batch to 1 and write results to result collection
+
+                       // *********** Not required ************************************* 
+                        /*var reqFileID = cloneFilter.fileID;
+                        createLog.debug("Start- Write the (preprocess)results to results collection --1 ")
+                        await trioVarResults(pid,reqFileID,projection,collection,resultCol,batch,cloneFilter,createLog);
+                        createLog.debug("Finish- Write the (preprocess)results to results collection --1 ")*/
+
+                        // Now clear the comp-het code - Add code
+                        //await resetCompHetCode(reqFileID,collection,createLog);
+
+                        // 4. Retrieve the variants based on pid,comp-het code and write the results to results collection
+                        createLog.debug("Start- Write the (final)results to results collection ")
+                       
+                        await invokeTrioInheritResUpd(pid,resultCol,db,collection,assemblyInfo['reqAssembly'],createLog,parsedJson,batch);
+                        createLog.debug("Finish- Write the (final)results to results collection ")
+
+                    } else {
+                        //var pid = process.pid;
+                        var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        if ( parsedJson['trio'] && parsedJson['trio']['inheritance'])  {
+                            // API based requests. maternal,paternal,recessive and denovo
+                            if ( parsedJson['trio']['inheritance'] != "compound-heterozygous") {
+                                var payload = { "batch" : 1,
+                                            "pid" : pid,
+                                            "req" : "done"
+                                            };
+        
+                                createLog.debug("Send the immediate response payload")
+                                createLog.debug(payload);
+                                console.log("Sending response payload")
+                                // Send the reponse payload immediately.
+                                process.send(JSON.stringify(payload));
+                            }
+                        }
+                        // normal trio cases and inheritance
+                        var batchCnt = 1;
+                        
+                        console.log("********************* PID "+pid)
+                        res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);                    
+                    }
                 } else {
+                    // regular filters (Sample Discovery)
                     var batchCnt = 1;
-                    var pid = process.pid;
+                    var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                    //var pid = process.pid;
                     res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);                    
                 }
                 
@@ -339,7 +444,7 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                     projection = parsedJson['output_columns'];
                 }
                 var posFilter = await positionBasedFilter(parsedJson);
-                console.dir(posFilter,{"depth":null});
+                //console.dir(posFilter,{"depth":null});
                 await processPosFilter(posFilter,projection,batch,resultCol,db,collection);
                 client.close();
             } catch(err2) {
@@ -371,7 +476,9 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
             }
         } else if ( parsedJson['invoke_type'] == "get_count" ) {
             try {
-                var reqID = process.pid;
+                //var reqID = process.pid;
+
+                var reqID = await genReqID(reqTrackCollection,db,parsedJson);
                 logFile = `getCount-${reqID}.log`;
                 createLog = loggerMod.logger('query',logFile);
                 //console.log("******** Log File name is "+logFile);
@@ -388,7 +495,8 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
             }
         } else if ( parsedJson['invoke_type'] == "saved_filter_count" ) {
             try {
-                var reqID = process.pid;
+                //var reqID = process.pid;
+                var reqID = await genReqID(reqTrackCollection,db,parsedJson);
                 logFile = `savedFilterCount-${reqID}.log`;
                 createLog = loggerMod.logger('query',logFile);
                 //console.log("******** Log File name is "+logFile);
@@ -456,6 +564,15 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
         var defaultSort = {'chr':1,'start_pos':1};
         var resType = "requested";
 
+        var reqColl = db.collection(reqTrackCollection);
+        // FIX28
+        /*var dummyPayload = {"batch":1, "pid" : pid, "req": type};
+        console.log("sending dummy payload")
+        console.dir(dummyPayload,{"depth":null})
+        process.send(JSON.stringify(dummyPayload));*/
+        // FIX28
+
+        //await new Promise(resolve => setTimeout(resolve,100000))
         var logStream = await collection.find(filter).sort(defaultSort);
         logStream.project(projection); 
         var docs = 0;
@@ -482,7 +599,7 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
             bulkOps.push(doc);
             if ( bulkOps.length === batch ) {
                 createLog.debug(`loadResultCollection ${batchCnt}`);
-                console.log(`Data has been written to results collection with ${batchCnt} and ${pid}`);
+                console.log(`Invoked results collection with batchcount ${batchCnt} and pid ${pid}`);
                 loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
                 //console.log("Batch count is "+batchCnt);
                 batchCnt++;
@@ -495,13 +612,34 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
         if ( bulkOps.length > 0 ) {
             createLog.debug(`invoke result collection for batch ${batchCnt} last`);
             //loadResultCollection(createLog,resultCol,"last",pid,batchId,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo);
-            loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+            if ( ! parsedJson['var_disc'] ) {
+                type = "last"
+            }
+            //loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+            // Update-Variant Discovery : last batch has to be set to 1 only after the last assembly is processed
+            loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
         }
         if ( ! docs ) {
             if ( parsedJson['var_disc'] ) {
-                loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                //loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType)
             } else {
-                process.send({"count":"no_variants"});
+                // inheritance based requests - update the status in table.
+                // Don't send the status
+                if ( parsedJson['trio'] && parsedJson['trio']['inheritance'] ) {
+                    reqColl.updateOne({'_id':pid},{$set:{'status':"no-variants"}})
+                } else {
+                    // sample-discovery and trio requests
+                    process.send({"count":"no_variants"});
+                }
+                
+                // FIX28
+                /*if ( parsedJson['trio']) {
+                    loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                } else {
+                    process.send({"count":"no_variants"});
+                }*/
+                // FIX28
             }
         }
 
@@ -712,6 +850,12 @@ async function invokeLiftoverResults(batchCnt,pid,resultCol,assemblyInfo,createL
             var storedKey = clonedDoc['lifted_var'];
             delete clonedDoc['lifted_var'];
             clonedDoc['var_key'] = storedKey;
+            var posData = storedKey.split('-');
+            // update the below fields with the lifted position
+            clonedDoc['chr'] = parseInt(posData[0]);
+            clonedDoc['start_pos'] = parseInt(posData[1]);
+            clonedDoc['ref_all'] = posData[2];
+            clonedDoc['alt_all'] = posData[3];
             bulkOps.push(clonedDoc);
             if ( bulkOps.length === batch ) {
                 createLog.debug(`loadResultCollection ${batchCnt}`);
@@ -749,8 +893,11 @@ function loadResultCollection(createLog,resultCol,reqVal,pid,batch,timeField,loa
     var loadToDB = {};
     var idVal = pid+'_'+batch;
 
+    createLog.debug("Logging the idVal "+idVal);
+
     var lastBatch = 0;
     if ( reqVal === "last" ) {
+        createLog.debug("LastBatch request with reqVal "+reqVal)
         lastBatch = 1;
     }
 
@@ -760,6 +907,7 @@ function loadResultCollection(createLog,resultCol,reqVal,pid,batch,timeField,loa
     loadToDB['lastBatch'] = lastBatch;
     loadToDB['createdAt'] = timeField;
 
+    //console.dir(loadToDB,{"depth":null})
     if ( Object.keys(hostInfo).length !== 0 ) {
         loadToDB['hostId'] = hostInfo['hostId'];
         loadToDB['centerId'] = hostInfo['centerId'];
@@ -786,9 +934,25 @@ function loadResultCollection(createLog,resultCol,reqVal,pid,batch,timeField,loa
     resultCol.insertOne(loadToDB).then(function(r) {
         createLog.debug("HEY THERE .. CHECK THE PAYLOAD ADDED BELOW ************************** ");
         createLog.debug(payload);
-        //console.log(JSON.stringify(payload));
-        process.send(JSON.stringify(payload)); // to be added once the child_process is attached
-        //return "done";
+        if ( parsedJson['trio'] && parsedJson['trio']['inheritance'] ) {
+            createLog.debug("Trio Inheritance request")
+            payload.batch = 0;
+            if ( reqVal == "last") {
+                process.send(JSON.stringify(payload));    
+            } else {
+                process.send(JSON.stringify({}));
+            }
+        } else {
+            // FIX28
+            /*if ( parsedJson['trio']) {
+                process.send(JSON.stringify({}));
+            } else {
+                process.send(JSON.stringify(payload)); // to be added once the child_process is attached
+            }*/
+            createLog.debug("SampDisc, VarDisc or Trio request");
+            process.send(JSON.stringify(payload)); // to be added once the child_process is attached
+        }
+        
     })
     .catch(function(err) {
         console.log(err);
@@ -870,6 +1034,8 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
             var filters = filters1[fIdx];
             var condHash = filters['c'];
             var fname = condHash['field'];
+            // Remove the trailing and leading space of fname
+            fname.trim();
             var type = condHash['type'];
             //var leaf = condHash['leaf'];
             var level = condHash['level'];
@@ -921,6 +1087,11 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
                     var trFileID = await fetchTrioFileID(db,trioLocalID,indId);
                     rootFilter = { "fileID" : trFileID, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                     altRootFilter = { "fileID" : trFileID, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
+                } else if ( parsedJson['trio']['inheritance']) {
+                    if (parsedJson['trio']['inheritance'] == "compound-heterozygous" ) {
+                        rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                        altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                    }
                 } else {
                     rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                     altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
@@ -940,6 +1111,8 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
                 filterRule = await altCntFilterRule(condHash,dbField);
             } else if ( dbField == 'PanelID' ) {
                 filterRule = await genePanelFilterRule(condHash,db,genePanelColl,createLog);
+            } else if ( dbField == 'phen_gene' ) {
+                filterRule = await getPhenFilterRule(condHash,db,createLog);
             } else {
                 if ( condHash['add_rule_pos'] ) {
                     filterRule = await positionFilterRule(condHash);
@@ -989,9 +1162,9 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
                 }
         
                 // add the current rule to the pass and fail array
-                console.log("Logging the current level below");
-                console.log(currentLevel);
-                console.dir(filterRule);
+                //console.log("Logging the current level below");
+                //console.log(currentLevel);
+                //console.dir(filterRule);
                 if ( currentLevel != 0 ) {
                     passArr.push(filterRule);
                     altFailArr.push(filterRule);
@@ -1233,6 +1406,11 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
                 var trFileID = await fetchTrioFileID(db,trioLocalID,indId);
                 rootFilter = { "fileID" : trFileID, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                 altRootFilter = { "fileID" : trFileID, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
+            } else if ( parsedJson['trio']['inheritance']) {
+                if (parsedJson['trio']['inheritance'] == "compound-heterozygous" ) {
+                    rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                    altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                }
             } else {
                 rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                 altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
@@ -1253,6 +1431,8 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
             var filters = filters1[fIdx];
             var condHash = filters['c'];
             var fname = condHash['field'];
+            // Remove the trailing and leading space of fname
+            fname.trim();
             var type = condHash['type'];
             var leaf = condHash['leaf'];
             var dbField = mapFilter[fname] || fname; // retrieve from the stored mapFilter
@@ -1266,6 +1446,8 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
                 filterRule = await genePanelFilterRule(condHash,db,genePanelColl,createLog);
                 //console.log("Logging filter rule");
                 //console.dir(filterRule,{"depth":null});
+            } else if ( dbField == 'phen_gene' ) {
+                filterRule = await getPhenFilterRule(condHash,db,createLog);
             } else {
                 if ( condHash['add_rule_pos'] ) {
                     filterRule = await positionFilterRule(condHash);
@@ -1418,6 +1600,8 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
         //createLog.debug("Logging the fail alternate root filter mongodb");
         createLog.debug(altRootFilter);
         //createLog.debug(altRootFilter,{"depth":null});
+        //console.dir(rootFilter,{"depth":null})
+        //console.dir(altRootFilter,{"depth":null})
 
         // Execute both queries in parallel
         var rootPromise = collection.find(rootFilter).count();
@@ -1428,8 +1612,6 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
         var result = [];
         var count = data[0];
         var fCount = data[1];
-        //console.log("Initial Count1 "+count);
-        //console.log("Initial count2 "+fCount);
 
         // Variant Discovery
         // Fetch the variants for the request geneID in the other assembly
@@ -1488,6 +1670,239 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
     }  
 }
 
+
+// Write the filtered results 110 + 101 to results collection
+async function trioVarResults(pid,projection,collection,resultCol,batch,retFilter,createLog) {
+    try {
+        var defaultSort = {'chr':1,'start_pos':1};
+        
+        createLog.debug("trioVarResults- Logging the filter")
+        createLog.debug(retFilter);
+        createLog.debug("ProcessID "+pid);
+
+        var logStream = await collection.find(retFilter).sort(defaultSort);
+        logStream.project(projection); 
+        var docs = 0;
+
+        var timeField = new Date();
+        var bulkOps = [];
+
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            
+            // clone the retrieved doc and add some fields
+            var clonedDoc = { ... doc};
+            var var_key = doc['var_key'];
+            ++docs;
+            createLog.debug("Writing document ..... "+docs);
+            clonedDoc['pid'] = pid;
+            clonedDoc['createdAt'] = timeField;
+            bulkOps.push({"insertOne" : clonedDoc});
+
+            if ( bulkOps.length === batch ) {
+                //createLog.debug(`loadResultCollection ${batchId}`);
+                const res1 = await resultCol.bulkWrite(bulkOps);
+                //batchId = batchCnt;
+                bulkOps = [];
+            } 
+        }
+
+        // check & process the last batch of data
+        if ( bulkOps.length > 0 ) {
+            //createLog.debug(`invoke result collection for batch ${batchId} last`);
+            const res1 = await resultCol.bulkWrite(bulkOps);
+        }
+        createLog.debug("Documents written to results collection "+docs);
+
+        /*if ( ! docs ) {
+            process.send({"count":"no_variants"});
+        }*/
+
+        return "logged-result";
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Trio Inheritance function that write the results to resultCollection
+// These results will once again be processed before it can retrieved.
+async function trioVarResults_old(pid,reqFileID,projection,collection,resultCol,batch,cloneFilter,createLog) {
+    try {
+        var defaultSort = {'chr':1,'start_pos':1};
+        // Filter for the specific fileID(proband fileID) and compound het variants
+        // Here we can once again include the tree filters if required.
+        // As the matching pair does not have all the filters applied
+        var filter = {...cloneFilter};
+        // remove trio_code from upFilter
+        delete filter['trio_code'];
+        // add comp-het:1 to the filter
+        filter['comp-het'] = 1;
+
+        createLog.debug("trioVarResults- Logging the updated filter")
+        createLog.debug(filter);
+        //var filter = { 'fileID': reqFileID, 'comp-het': 1 };
+
+        var logStream = await collection.find(filter).sort(defaultSort);
+        logStream.project({_id:0,'uid':0}); 
+        //console.log(logStream)
+        //logStream.project(projection); 
+        var docs = 0;
+
+        var timeField = new Date();
+        var bulkOps = [];
+
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            
+            //console.log(doc)
+            // clone the retrieved doc and add some fields
+            var clonedDoc = { ... doc};
+            var var_key = doc['var_key'];
+            ++docs;
+            createLog.debug("Updated Filter scanning document ..... "+docs);
+            clonedDoc['pid'] = pid;
+            clonedDoc['createdAt'] = timeField;
+            bulkOps.push({"insertOne" : clonedDoc});
+
+            if ( bulkOps.length === batch ) {
+                //createLog.debug(`loadResultCollection ${batchId}`);
+                const res1 = await resultCol.bulkWrite(bulkOps);
+                //batchId = batchCnt;
+                bulkOps = [];
+            } 
+        }
+
+        // check & process the last batch of data
+        if ( bulkOps.length > 0 ) {
+            //createLog.debug(`invoke result collection for batch ${batchId} last`);
+            const res1 = await resultCol.bulkWrite(bulkOps);
+        }
+
+        /*if ( ! docs ) {
+            process.send({"count":"no_variants"});
+        }*/
+
+        return "logged-result";
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Function to reset the compound het code
+async function resetCompHetCode(idxFileID,collection,createLog) {
+    try {
+        var reqFilter = {'fileID' :idxFileID ,'comp-het':1};
+        var setFilter = {'comp-het' : 0};
+        createLog.debug("resetCompHetCode function")
+        createLog.debug(reqFilter);
+        createLog.debug(setFilter);
+        await collection.updateMany(reqFilter, {$set:setFilter});
+        createLog.debug("resetCompHetCode completed for reqFileID "+idxFileID);
+    } catch(err) {
+        console.log("Error in resetting comp-het code "+err);
+    }
+}
+
+// Apply this in the result collection, based on pid
+async function trioScanCH(pid,filter,projection,resultCol,tr_code,createLog) {
+    try {
+
+        // filter executed in result collection. indexed on pid
+        var logStream = await resultCol.find(filter);
+        //console.log(logStream)
+        logStream.project(projection); 
+        console.log("Received results from the logStream")
+        var docs = 0;
+
+        var timeField = new Date();
+        var bulkOps = [];
+
+        var count = 0;
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            count++;
+            createLog.debug("Scanning variant count .... "+count);
+            
+            var src_var = doc.var_key;
+            createLog.debug("Retrieved source variant ")
+            createLog.debug(src_var)
+            var transcripts = [];
+            if ( doc.gene_annotations.length > 0 ) {
+                // returns an iterator object
+                var val = doc.gene_annotations.values();
+                //console.log(val.next().value);
+                transcripts = await getTranscripts(val);
+                //console.log(transcripts);
+            }
+            // Prepare filter to search the variants in index-mother having the transcripts
+            //var tran_filter = {'pid' : pid, trio_code: tr_code, 'gene_annotations.transcript_id' : {$in : transcripts},'comp-het' : {$ne : 1}};
+            var tran_filter = {'pid' : pid, trio_code: tr_code, 'gene_annotations.transcript_id' : {$in : transcripts}};
+            
+            createLog.debug("Logging the transcript filter ---- ")
+            createLog.debug(tran_filter);
+            var variants = await fetchCHMatch(tran_filter,resultCol);
+            createLog.debug("Logging the identified comp-het variant")
+            createLog.debug(variants);
+            //console.log(variants)
+            // Variants 
+            if ( variants.length > 0 ) {
+                // If there was a variant identified for the source variant transcript, also include the source variant to the variants array.
+                variants.push(src_var);
+                //console.log("Logging source variant");
+                //console.log(src_var);
+                var update_filter = {'pid':pid,'var_key' : {$in:variants}};
+                //console.log("Executed update filter for the below combination");
+                //console.dir(update_filter,{"depth":null});
+                // Sets comp-het to 1 for the variant (src-var) and the corresponding variants which have the src-var transcript.
+                var set_filter = {'comp-het':1}
+                createLog.debug("Added src variant.Identified compound-het variant ......");
+                createLog.debug(variants);
+                // update comp-het:1 for these variants
+                await resultCol.updateMany(update_filter, {$set:set_filter});
+            }
+        }
+        return "logged-result";
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Function to fetch the transcripts from the transcripts object
+// tran_obj is an iterator composed as array of hashes - array of transcript hashes.
+async function getTranscripts(tran_obj) {
+    var transcripts = [];
+    try {
+        for ( var val of tran_obj ) {
+            if ( val.transcript_id ) {
+                transcripts.push(val.transcript_id);
+            }
+        }
+    } catch(err) {
+        throw err;
+    }
+    return transcripts;
+}
+
+// Function to retrieve the matching variants based on the transcripts provided as filter
+async function fetchCHMatch(tran_filter,collection) {
+    var variants = [];
+    try {
+        //console.dir(tran_filter,{"depth":null});
+        var logStream = await collection.find(tran_filter);
+        logStream.project({'var_key':1,'trio_code':1});
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            //console.log(doc);
+            if ( doc.var_key ) {
+                variants.push(doc.var_key)
+            }
+        }
+    } catch(err) {
+        throw err;
+    }
+    return variants;
+}
+
 async function fetchSeqTypeList(db,seqType) {
     try {
         var fileIDList = [];
@@ -1541,7 +1956,20 @@ async function fetchTrioFileID(db,trioLocalID,indId) {
         throw err;
     }
 }
-
+// rel = "Proband" or "Father" or "Mother"
+async function fetchTrioRelFileID(db,trioLocalID,rel) {
+    try {
+        var query = {"TrioLocalID" : trioLocalID,"TrioStatus" : "completed","trio.relation": rel};
+        var trioFileID = "";
+        var res = await db.collection(trioCollection).findOne(query,{projection:{'trio.fileID.$':1,_id:0}});
+        if ( res ) {
+            trioFileID = res['trio'][0]['fileID'];
+        }
+        return trioFileID;
+    } catch(err) {
+        throw err;
+    }
+}
 
 async function fetchTrioBuildType(db,trioLocalID) {
     try {
@@ -1787,6 +2215,48 @@ async function genePanelFilterRule(condHash,db,genePanelColl,createLog) {
     }
 }
 
+// Function to read the string of geneIDs and convert to array format
+async function getPhenFilterRule(condHash,db,createLog) {
+    try {
+        var filterRule = {};
+
+        if (!condHash['rule']['formula'] ) {
+            // delete formula key
+            delete condHash['rule']['formula'];
+        }
+
+        var filterType = getFilterType(condHash);
+        var geneStr = condHash['rule'][filterType];
+        
+        var geneList = [];
+        for ( var idx in geneStr ) {
+            var gene = geneStr[idx];
+            //console.log(gene);
+            // check and remove leading space
+            var re = /,\s+/g;
+            var re1 = /^\s+/g;
+            gene = gene.replace(re1,'');
+            if (gene.match(re)) {
+                gene = gene.replace(re, ',');
+                //createLog.debug("New String is "+chr);   
+            }
+            //console.log("After removing space :")
+            //console.log(gene)
+            var tmpList = gene.split(",");
+            geneList.push(...tmpList);
+            //console.log(tmpList)
+        }
+        //console.log("Gene List after processing :");
+        //console.log(geneList);
+        var dbField = 'gene_annotations.gene_id';
+        condHash['rule'][filterType] = geneList;
+        filterRule[dbField] = condHash['rule'];
+        return filterRule;
+    } catch(err) {
+        throw err;
+    }
+}
+
 async function altCntFilterRule(condHash,dbField) {
     try {
         var altHash = { "homRef" : 0 , "het" : 1, "homAlt" : 2 ,'any_genotype' : [0,1,2],'any_alternative' : [1,2] };
@@ -1817,7 +2287,6 @@ async function altCntFilterRule(condHash,dbField) {
         throw err;
     }
 }
-
 
 async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
     try {
@@ -1856,6 +2325,7 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
                 rootFilter = tmpFil1; 
             }
         } else if ( parsedJson['trio']) {
+            //console.log("TRio *******************************")
             var trioLocalID = parsedJson['trio']['trioLocalID'];
             var trioCode = parsedJson['trio']['trio_code'];
             var trioFileList = await fetchTrioLocalList(db,trioLocalID);
@@ -1864,6 +2334,36 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
                 // restrict filter search based on IndividualID/fileID
                 var trFileID = await fetchTrioFileID(db,trioLocalID,indId);
                 rootFilter = { "fileID" : trFileID, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
+            } else if ( parsedJson['trio']['inheritance']) {
+                //console.log("logicalFilter Inheritance----------")
+                if (parsedJson['trio']['inheritance'] == "compound-heterozygous" ) {
+                    var fID = await fetchTrioRelFileID(db,trioLocalID,"Proband")
+                    //rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                    //rootFilter = { "fileID" : fID, 'trio_code': {$in:["110","101"]}, 'alt_cnt': {$eq:1}};
+                    // Fetch only variants which are present in Index and Father.
+                    // Begin analysis with variants present in Index and Father with a heterozygous variant filter
+                    // To be reviewed : comp-het criteria should be removed from the root filter
+                    //rootFilter = { "fileID" : fID, 'trio_code': {$in:["110"]}, 'alt_cnt': {$eq:1}, 'comp-het': {$ne:1},'gene_annotations' : {$ne : [ ]}};
+
+                    // Retrieve the heterozygous variants present in proband-father(110) and proband-mother(101)
+                    rootFilter = { "fileID" : fID, 'trio_code': {$in:["110","101"]}, 'alt_cnt': {$eq:1},'gene_annotations' : {$ne : [ ]}};
+                } else {
+                    // includes all the other scenarios
+                    // maternal, paternal, denovo, recessive
+                    
+                    var inh_type = parsedJson['trio']['inheritance'];
+                    var fID = await fetchTrioRelFileID(db,trioLocalID,"Proband")
+                    var trio_code_hash = {"maternal" : "101", 
+                                           "paternal" : "110", 
+                                           "denovo" : "100",
+                                           "recessive" : "111"
+                                        };
+                    var tr_code = trio_code_hash[inh_type];
+                    createLog.debug("Logging the rootFilter in logicalFilterProcess");
+                    // exluding hom-ref variants
+                    rootFilter = { "fileID" : fID, 'trio_code': {$in:[tr_code]}, 'alt_cnt': {$ne:0}};
+                    createLog.debug(rootFilter);
+                }
             } else {
                 rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
             }   
@@ -2041,10 +2541,190 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
         createLog.debug(rootFilter);
         return rootFilter;
     } catch(err) {
+        //console.log(err);
         createLog.debug("Logging an error in this function ");
         createLog.debug(`${err}`);
         throw err;
     }  
+}
+
+async function invokeTrioInheritRes(pid,resultCol,assemblyInfo,createLog,parsedJson,batch,type = "done") {
+    try {
+
+        var filter = { 'pid': pid, 'trio_uid': { $exists: true } };
+        var trioSort = {'gene_annotations.gene_id':1,'var_key':1};
+        var logStream = await resultCol.find(filter).sort(trioSort);
+        logStream.project({_id:0,'var_key':0,'uid':0}); 
+        var docs = 0;
+        var batchCnt = 1;
+        var resType = "requested";
+
+        var timeField = new Date();
+        
+        //console.log("Batch id received as input is "+batchCnt);
+        var loadHash = {};
+        var bulkOps = [];
+
+        createLog.debug(`Batch is ${batchCnt}`);
+        var hostInfo = {};
+
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            var clonedDoc = { ... doc};
+            ++docs;
+            var storedKey = clonedDoc['trio_uid'];
+            delete clonedDoc['trio_uid'];
+            //clonedDoc['var_key'] = storedKey;
+            bulkOps.push(clonedDoc);
+            if ( bulkOps.length === batch ) {
+                createLog.debug(`loadResultCollection ${batchCnt}`);
+                console.log(batchCnt)
+                console.log("Calling loadResultCollection")
+                loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                //console.log("Batch count is "+batchCnt);
+                batchCnt++;
+                bulkOps = [];
+                loadHash = {};
+            } 
+        }
+
+        // check & process the last batch of data
+        if ( bulkOps.length > 0 ) {
+            createLog.debug(`invoke result collection for batch ${batchCnt} last`);
+            //loadResultCollection(createLog,resultCol,"last",pid,batchId,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo);
+            loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+        }
+
+        if ( ! docs ) {
+            if ( parsedJson['var_disc'] ) {
+                loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+            }
+            //process.send({"count":"no_variants"});
+        }
+
+        //console.log("Batch count before returning result is "+batchCnt);
+        //return "success";
+        return batchCnt;
+    } catch(err) {
+        throw err;
+    }
+}
+
+
+async function invokeTrioInheritResUpd(pid,resultCol,db,collection,assemblyInfo,createLog,parsedJson,batch,type = "done") {
+    try {
+
+        //var filter = { 'fileID': reqFileID, 'comp-het': 1 };
+        var filter = {'pid':pid,'comp-het':1}
+        var trioSort = {'gene_annotations.gene_id':1};
+        var logStream = await resultCol.find(filter).sort(trioSort);
+        console.log(filter)
+        console.log(trioSort)
+        //var logStream = await collection.find(filter).sort(trioSort);
+        logStream.project({'comp-het':0, _id:0}); 
+        var docs = 0;
+        var batchCnt = 1;
+        var resType = "requested";
+
+        var timeField = new Date();
+        var reqColl = db.collection(reqTrackCollection);
+        //console.log("Batch id received as input is "+batchCnt);
+        var loadHash = {};
+        var bulkOps = [];
+
+        createLog.debug(`Batch is ${batchCnt}`);
+        var hostInfo = {};
+
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            //console.log(doc)
+            //var clonedDoc = { ... doc};
+            ++docs;
+            //var storedKey = clonedDoc['trio_uid'];
+            //delete clonedDoc['trio_uid'];
+            //clonedDoc['var_key'] = storedKey;
+            //bulkOps.push(clonedDoc);
+            bulkOps.push(doc);
+            if ( bulkOps.length === batch ) {
+                createLog.debug(`loadResultCollection ${batchCnt}`);
+                console.log(batchCnt)
+                //console.log("Calling loadResultCollection")
+                loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                //console.log("Batch count is "+batchCnt);
+                batchCnt++;
+                bulkOps = [];
+                loadHash = {};
+            } 
+        }
+
+        // check & process the last batch of data
+        if ( bulkOps.length > 0 ) {
+            createLog.debug(`invoke result collection for batch ${batchCnt} last`);
+            //loadResultCollection(createLog,resultCol,"last",pid,batchId,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo);
+            loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+        }
+
+        if ( ! docs ) {
+            if ( parsedJson['trio'] && parsedJson['trio']['inheritance'] ) {
+                reqColl.updateOne({'_id':pid},{$set:{'status':"no-variants"}})
+            }
+            /*if ( parsedJson['var_disc'] ) {
+                loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+            }*/
+            //process.send({"count":"no_variants"});
+        }
+        createLog.debug("Documents added to result collection "+docs);
+
+        //console.log("Batch count before returning result is "+batchCnt);
+        //return "success";
+        return batchCnt;
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Function to generate requestID for query requests(count and sample-query)
+// This process is valid for Sample Discovery, Trio & Variant Discovery.
+async function genReqID(reqCollName,db,parsedJson) {
+    // Get the last inserted ID
+    var reqColl = db.collection(reqCollName);
+    var res = await reqColl.find({}).sort({_id:-1}).limit(1);
+    const doc = await res.next();
+    var timeField = new Date();
+    var pid;
+    if ( doc == null ) {
+        console.log("Collection not created.insert with _id 1");
+        pid = 1;
+        if ( parsedJson['var_disc']) {
+            pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
+        }
+        await reqColl.insertOne({'_id':pid,'createdAt':timeField,'status':'created'});
+    } else {
+        // latest pid 
+        pid = doc._id;
+        // increment pid
+        pid = pid + 1; 
+        // if variant disc, then include additional logic for pid
+        if ( parsedJson['var_disc']) {
+            pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
+        }
+
+        // confirm if the pid does not exist
+        var res = await reqColl.findOne({_id:pid});
+        if ( res ) {
+            console.log("increment and insert")
+            // if pid exists, increment pid and insert
+            pid = pid + 1;
+            await reqColl.insertOne({'_id':pid,'createdAt':timeField,'status': 'created'});
+        } else {
+            console.log("just insert")
+            await reqColl.insertOne({'_id':pid,'createdAt':timeField,'status': 'created'});
+        }
+        console.log(res);
+        console.log("insert a doc with a incremented ID");
+    }
+    console.log(`Logging generated pid ${pid}`);
+    return pid;
 }
 
 function applyFont(txt) {
@@ -2060,6 +2740,8 @@ const initializeResultColl = async(client,db,ttlVal) => {
         resCol = db.collection(resultCollection);
     } catch(err) {
         resCol = db.collection(resultCollection);
+        var idx1 = {"gene_annotations.gene_id" : 1 };
+        await createColIndex(db,resultCollection,idx1);
     }
     return resCol;
 }
@@ -2068,12 +2750,9 @@ async function readFile(variantFile,varContLog) {
     var rd;
     try {
         var liftedVariant = null;
-        console.log("File "+variantFile);
         if ( ! fs.existsSync(variantFile)) {
-            console.log("-------- File does not exist------");
             return liftedVariant;
         } else {
-            console.log("----------File exists----------------------");
             //createLog.debug(`Parsing filename ${sampleSh}`);
             var rd = readline.createInterface({
                 input: fs.createReadStream(variantFile),
@@ -2085,7 +2764,6 @@ async function readFile(variantFile,varContLog) {
             var blankLine = /^\s+$/g;
             var lineArr = [];
             varContLog.debug(`variantFile - ${variantFile}`);
-            //console.log("Line Count is *************"+lineCnt);
             rd.on('line', (line) => {
                 if ( ! line.match(lineRe) && ! line.match(blankLine)) {
                     //createLog.debug(line);

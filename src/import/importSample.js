@@ -1065,7 +1065,7 @@ function normaliseVariant(start,stop,ref,alt) {
     return variant;
 }
 
-async function updateStatus(dbStat,search,update,pushSt) {
+async function updateStatus(dbStat,search,update,pushStat) {
     try {
         var id  = {'_id' : search};
         var set = {};

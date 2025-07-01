@@ -94,9 +94,15 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
         filename = path.join(process.env.importLogPath,logFile);
     }*/
 
+    // Enable DEBUG
+    process.env.DEBUG = 'mongodb';
+
     console.log("******** Log File name is "+logFile);
     var createLog = loggerMod.logger('import',logFile);
     var statsLog = loggerMod.logger('import',statsLogFile);
+
+    //const debug = require('debug');
+    //debug.log = createLog.debug.bind(createLog); // Redirect debug output to winston
 
     statsLog.verbose(`Sample : ${sample}`);
     statsLog.verbose(`Sample ID : ${vcfId}`);
@@ -115,12 +121,12 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
     try {
         if ( assemblyType == "GRCh37") {
             varCol = require('../models/variantDataModelGRCh37.js');
-            console.log("Collection Object created ");
+            createLog.debug("Collection Object created ");
             importCollection = importCollection1;
             variantAnnoCollection = variantAnnoCollection1;
         } else if ( assemblyType == "GRCh38" ) {
             varCol = require('../models/variantDataModelGRCh38.js');
-            console.log("Collection Object created ");
+            createLog.debug("Collection Object created ");
             importCollection = importCollection2;
             variantAnnoCollection = variantAnnoCollection2;
         }
@@ -140,19 +146,19 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
         await createColIndex(db,importCollection,idx3);
         
     } catch (err) {
-        console.log("Index already exists.Just proceed"+err);
+        createLog.error("Index already exists.Just proceed"+err);
     }
 
     try {
         await createColIndex(db, importCollection,{"gene_annotations.gene_id" : 1});
     } catch (e) {
-        console.log("gene_id index already exists. Proceed further"+e);
+        createLog.error("gene_id index already exists. Proceed further"+e);
     }
 
     try {
         await createColIndex(db, variantAnnoCollection,{"annotated":1});
     } catch (e) {
-        console.log("annotated index already exists. Proceed further"+e);
+        createLog.error("annotated index already exists. Proceed further"+e);
     }
 
     var start = new Date();
@@ -179,7 +185,7 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
             createLog.debug("handle returned from createFileHandle function "+rd);
             var val = await parseHCSample(rd,sample, vcfId,createLog, statsLog,varCol,batchSize);
             var stop = new Date();
-            console.log("What was the return value sent by the above function ?");
+            createLog.debug("What was the return value sent by the above function ?");
             createLog.debug("Import Sample Program Completed at "+stop);
             if ( val == "Success") {
                 createLog.debug("Received value "+val);
@@ -189,7 +195,7 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
             }
         }
     } catch(err) {
-        console.log("Catch Error is "+err);
+        createLog.debug("Catch Error is "+err);
         var errMsg = 'Import Sample Stage-failed due to download or parse errors '+err;
         var status = {'status_description' : 'Error','status_id':9, 'error_info':errMsg, 'finish_time': new Date()};
         createLog.debug('updateId is '+updateId);
@@ -197,17 +203,17 @@ const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
         if ( updateId ) {
             updateId = parseInt(updateId);
         }
-        await updateStatus(db,updateId,status,pushSt);
+        await updateStatus(db,updateId,status,pushSt,vcfId);
         await updateSampleSheetStat(db,vcfId,"import failed");
         createLog.debug("Error resolving promise "+err);
         createLog.debug(`${err}`);
         createLog.debug("Exit spawned process ");
         await new Promise(resolve => setTimeout(resolve, 10000));
         /*createLog.on('finish', function (debug) {
-            console.log("All debug log messages has now been logged");
+            createLog.debug("All debug log messages has now been logged");
         });*/
-        console.log("Error here ********");
-        console.log(err);
+        createLog.error("Error here ********");
+        createLog.error(err);
         process.exit(1);
     }
 
@@ -251,7 +257,7 @@ async function downloadData(sample,vcfId,createLog) {
                         .split('filename=')[1]
                         .split(';')[0]
                         .replace(/"/g, '');
-                    console.log("filename is "+reqFileName);
+                    createLog.debug("filename is "+reqFileName);
                 } else {
                     var tmpPid = process.pid;
                     var tmpFile = `sample-name-${tmpPid}`;
@@ -283,10 +289,10 @@ async function downloadData(sample,vcfId,createLog) {
         });
                 
         req.on('error' , (err) => { 
-            console.log("Error in reading request data from Request URL");
-            console.log(err);
+            createLog.error("Error in reading request data from Request URL");
+            createLog.error(err);
             //createLog.debug(err);
-            createLog.debug("Error in reading data from Request URL "+sample);
+            createLog.error("Error in reading data from Request URL "+sample);
             reject(err);
         });
         req.end();
@@ -315,7 +321,7 @@ async function createZipInterface(sample,vcfId,createLog) {
         }
         return rd;
     } catch(err) {
-        console.log("Is the error caught here ?");
+        createLog.error("Is the error caught here ?");
         throw err;
     }
     
@@ -433,7 +439,18 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                     } // Chr Field 
 
                     //console.log("Value is------------------ "+field);
+                    
+                    // phred polymorphism is not present in some public genome data and model (integer) casting fails it is dot (.)
+                    if ( field == 'phredPoly') {
+                        //console.log("Field is phred poly ---- ");
+                        if (data[idx] ==  "."){
+                            //console.log(data[idx]);
+                            data[idx] = 0;  
+                        }
+                    }
                     fieldVal[field] = data[idx];
+                    //console.log('Logging field '+field);
+                    //console.log('Logging idx data '+data[idx]);
                 }
 
                 // ******************** Annotation Info **************************** //
@@ -515,22 +532,22 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
 
                     ////////////////// Genotype fields for Sample //////////////////////////////////////////////
                     var sampleStr = fieldVal['sampleStr'];
-                    //console.log("Format String **************** "+formatStr);
-                    //console.log("Sample String **************** "+sampleStr);
+                    //createLog.debug("Format String **************** "+formatStr);
+                    //createLog.debug("Sample String **************** "+sampleStr);
                     var samples = sampleStr.split(':');
                     var formatHash = {};
                     for (var formatIdx in formats) {
                         var val1 = formats[formatIdx];
                         formatHash[val1] = samples[formatIdx];
                     }
-                    //console.log("Dumping hash ------------ ");
+                    //createLog.debug("Dumping hash ------------ ");
                     //console.dir(formatHash,{depth:null});
 
                     // GT : './. GT : '.|.' --> Not enough information to call a variant. Skip them.
                     var gtRe1 = /\.\/\./g; // ./.
                     var gtRe2 = /\.\|\./g; // .|.
                     if ((formatHash['GT'].match(gtRe1)) || (formatHash['GT'].match(gtRe2))) {
-                        //console.log("Skip variant not called GT - CHR" + chr);
+                        //createLog.debug("Skip variant not called GT - CHR" + chr);
                         //return;
                         createLog.debug("Skipping entry as GT is ./.");
                         createLog.debug(line);
@@ -542,19 +559,19 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
 
 
                     ///////////////////// GVCF REFERENCE ///////////////////////////////////
-                    //console.log("Checking for GVCF data if any ");
+                    //createLog.debug("Checking for GVCF data if any ");
                     //console.dir(fieldVal,{"depth":null});
                     if (fieldVal['altall'] == '<NON_REF>') {
-                        //console.log("Here is a NON_REF");
+                        //createLog.debug("Here is a NON_REF");
                         nonVariant = 1;
                         vType = "non_var";
                         var info = fieldVal['infoStr'];
                         var re1 = /END=([^=]*)/;
                         var res = re1.exec(info);
-                        //console.log("********* NON_REF String Check ");
-                        //console.log(res);
+                        //createLog.debug("********* NON_REF String Check ");
+                        //createLog.debug(res);
                         var stop = res[1];
-                        //console.log("Stop position value is "+stop);
+                        //createLog.debug("Stop position value is "+stop);
                         var dp = formatHash['DP'];
                         var minDp = formatHash['MIN_DP'];
                         var dpl = 0;
@@ -569,8 +586,8 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                         var annoKey = fieldVal['chr'] + '-' + startPos + '-' + fieldVal['refall'] + '-' + fieldVal['refall'];
                         //nonRef = uniqueKey + '\t' + fieldVal['refall'] + '\t' + startPos + '\t' + stop + '\t' + dp + '\t' + gq + '\t' + minDp + '\t' + dpl;
                         nonRef = fieldVal['vcf_chr'] + '\t' + annoKey + '\t' + uniqueKey + '\t' + fieldVal['refall'] + '\t' + startPos + '\t' + stop + '\t' + dp + '\t' + gq + '\t' + minDp + '\t' + dpl;
-                        //console.log("NON REF Positions Data ");
-                        //console.log(nonRef);
+                        //createLog.debug("NON REF Positions Data ");
+                        //createLog.debug(nonRef);
                     }
 
                     ////////////////////  GVCF ////////////////////////////////////////////
@@ -611,7 +628,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                     // GT: '0/1', GT: '1/1' , GT: '1/2'
                     
                     var genotype = formatHash['GT'].split(/\/|\|/);
-                    //console.log("Checking for genotype");
+                    //createLog.debug("Checking for genotype");
                     //console.dir(genotype,{"depth":null});
 
                     // multiallelic : Two different alternate alleles are present
@@ -621,17 +638,17 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                     var strA = 0;
                     var strB = 0;
 
-                    //console.log(genotype);
-                    //console.log(genotype.length);
+                    //createLog.debug(genotype);
+                    //createLog.debug(genotype.length);
                     if (genotype.length == 2) {
                         ploidy = 2;
                         var gt1 = genotype[0];
                         var gt2 = genotype[1];
                         var altCnt = parseInt(gt1) + parseInt(gt2);
-                        //console.log("Test altCnt Value is "+altCnt);
+                        //createLog.debug("Test altCnt Value is "+altCnt);
                         var gtRatio = altCnt / 2;
 
-                        //console.log("Test RPA length "+rpa.length);
+                        //createLog.debug("Test RPA length "+rpa.length);
                         if (rpa.length > 0) {
                             strA = rpa[gt1];
                             strB = rpa[gt2];
@@ -670,7 +687,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                 //mAllelic = 1;
                                 altCnt = 1; // heterozygous for two different alt alleles. eg: 1/2
                             } else if ( gt1 == gt2 ) { // homozygous-alt ( Same Alternate Alleles ) Not considered multiAllelic
-                                //console.log("MultiAllelic Case--Alternate Count--Before Setting-- Homozygous "+altCnt);
+                                //createLog.debug("MultiAllelic Case--Alternate Count--Before Setting-- Homozygous "+altCnt);
                                 // homozygous for the allele mentioned
                                 altCnt = 2;
                             } else {
@@ -687,7 +704,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                         for (var idx in altAlls) { // Alt All Loop
                             var altDepth = '';
                             altIdx++;
-                            //console.log("altIdx is "+altIdx);
+                            //createLog.debug("altIdx is "+altIdx);
                             var altAll = altAlls[idx];
                             // Ignore alternate allele marked for spanning deletions
                             if ( altAll == "*" ) {
@@ -696,8 +713,8 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                 continue;
                             }
 
-                            //console.log("Now let us normalise for ");
-                            //console.log(`startPos : ${startPos} stopPos: ${stopPos} refAll: ${refAll} altAll: ${altAll}`);
+                            //createLog.debug("Now let us normalise for ");
+                            //createLog.debug(`startPos : ${startPos} stopPos: ${stopPos} refAll: ${refAll} altAll: ${altAll}`);
                             var normVariant = normaliseVariant(startPos,stopPos,refAll,altAll);
                             startPos = normVariant['start'];
                             stopPos = normVariant['stop'];
@@ -707,17 +724,17 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                             // substitute the values returned by normaliseVariant
                             var uniqueKey = sId + '-' + fieldVal['chr'] + '-' + startPos + '-' + refAll + '-' + altAll;
                             var annotationKey = fieldVal['chr'] + '-' + startPos + '-' + refAll + '-' + altAll;
-                            //console.log('Check uniqueKey '+uniqueKey);
+                            //createLog.debug('Check uniqueKey '+uniqueKey);
 
                             if ((refAll == altAll) && (altCnt == 0)) {
                                 // Set the alt depth
                                 altDepth = depths[1];
                             }
                             // Validate with some test data and also for NON_REF based positions
-                            //console.log("altCnt check for nonVariant is "+nonVariant);
+                            //createLog.debug("altCnt check for nonVariant is "+nonVariant);
                             if (altCnt == 0) {
-                                //console.log("altCnt is "+altCnt);
-                                //console.log("Are we skipping the entry here ? ");
+                                //createLog.debug("altCnt is "+altCnt);
+                                //createLog.debug("Are we skipping the entry here ? ");
                                 // GT : 0/0
                                 // To be added later 
                                 if (altAll == '<NON_REF>' && altAlls.length > 1) {
@@ -729,7 +746,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                 // 0 - ref 1-alt_all1 2-alt_all2 .... 
                                 // skip the alleles that are not present
                             } else if ((gt1 != altIdx) && (gt2 != altIdx)) {
-                                //console.log("Check here "+uniqueKey);
+                                //createLog.debug("Check here "+uniqueKey);
                                 continue;
                             } else {
                                 // set alt depth
@@ -747,7 +764,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                             }*/
 
                             if ((refDepth == '') || (altDepth == '')) {
-                                //console.log("fetch Missing Depth from IGV");
+                                //createLog.debug("fetch Missing Depth from IGV");
                             }
 
                             if (printHeaderNo == 1) {
@@ -755,12 +772,12 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                 printHeaderNo = 0; // Reset to 0
                             }
 
-                            //console.log("nonVariant is "+nonVariant);
+                            //createLog.debug("nonVariant is "+nonVariant);
                             if (nonVariant == 1) {
                                 // gq : phredGeno
-                                //console.log("Check non_variant setting and log it");
-                                //console.log("Log the non ref data and check");
-                                //console.log(nonRef);
+                                //createLog.debug("Check non_variant setting and log it");
+                                //createLog.debug("Log the non ref data and check");
+                                //createLog.debug(nonRef);
                                 //nonRef : fieldVal['refall']+'\t'+startPos+'\t'+stop+'\t'+dp+'\t'+gq+'\t'+minDp+'\t'+dpl;
                                 //nonRef = fieldVal['vcf_chr'] + '\t' + annoKey + '\t' + uniqueKey + '\t' + fieldVal['refall'] + '\t' + startPos + '\t' + stop + '\t' + dp + '\t' + gq + '\t' + minDp + '\t' + dpl;
                                 var nonRefData = nonRef.split('\t');
@@ -782,13 +799,13 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
 
                                 // store for variants that do not have spanning deletion and are not multi-allelic
                                 if ( ! spanningDeletion && ! mAllelic ) {
-                                    //console.log("Logging uID value "+uID);
-                                    //console.log("Logging spanning deletion value "+spanningDeletion);
+                                    //createLog.debug("Logging uID value "+uID);
+                                    //createLog.debug("Logging spanning deletion value "+spanningDeletion);
                                     uID = printCombination;
-                                    //console.log(uID);
+                                    //createLog.debug(uID);
                                 } else if ( spanningDeletion ) {
                                     createLog.debug("spanning deletion "+spanningDeletion);
-                                    //console.log(uID);
+                                    //createLog.debug(uID);
                                     // When there is a position and then multiple subsequent spanning deletions(*), it is enough if we set the multi-allelic for previous position once.
                                     if ( uID != "" ) {
                                         var updateFilter = {};
@@ -812,25 +829,28 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                             // Create document with Mongo and send the data using mongoose bulk write
                             if (printString != "") {
                                 insertCtr++;
-                                //console.log("Check for the document sent to createDoc function");
-                                //console.log(printString);
+                                //createLog.debug("Check for the document sent to createDoc function");
+                                //createLog.debug(printString);
                                 var doc = createDoc(fieldHeaders, printString, insertCtr, pid); // variantSchema
-                                //console.log("Log the document and check ");
-                                //console.log(doc);
+                                //createLog.debug("Log the document and check ");
+                                //createLog.debug(doc);
                                 bulkOps.push({ "insertOne": doc });
-
-                                var annoDoc = createAnnoDoc(annotationKey,pid); // Unique Variant Annotation Doc with the status "1/0" : Annotation
-                                annoData.push({"insertOne": annoDoc});
+                                // Optimization - NON_REF gvcf entries need not be added to annotation collection 17/10/2024
+                                var annoDoc = {};
+                                if ( nonVariant == 0 ) {
+                                    annoDoc = createAnnoDoc(annotationKey,pid); // Unique Variant Annotation Doc with the status "1/0" : Annotation
+                                    annoData.push({"insertOne": annoDoc});
+                                }
                                 //var docSize = BSON.calculateObjectSize(doc);
-                                //console.log("Document Size is "+docSize);
+                                //createLog.debug("Document Size is "+docSize);
                                 if ((bulkOps.length % batchSize ) === 0) {
                                     //createLog.debug("Batch threshold Reached. Start with bulkLoading");
                                     var lgt = bulkOps.length;
                                     createLog.debug("Length of bulk Array "+bulkOps.length);
                                     varCol.bulkWrite(bulkOps, { 'ordered': false }).then(function (r) {
                                     //varCol.bulkWrite(bulkOps, { 'ordered': true }).then(function (r) {
-                                        //console.log("Logging the bulkops result structure");
-                                        //console.log(r,{"depth":null});
+                                        //createLog.debug("Logging the bulkops result structure");
+                                        //createLog.debug(r,{"depth":null});
                                         //createLog.debug("Executed bulkWrite and the results are ");
                                         //createLog.debug("Import Collection-Count of data loaded given below");
                                         importCollCnt = importCollCnt + r.insertedCount;
@@ -843,7 +863,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                             createLog.debug("Import-Catch-"+err1.result.nInserted);
                                         } else {
                                             //console.dir(err1,{'depth':null});
-                                            //console.log(`${err1}`);
+                                            createLog.debug(`${err1}`);
                                         }
                                         
                                         //createLog.debug("Catch-Length of bulk Array "+bulkOps.length);
@@ -864,7 +884,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                                                 annoCollCnt = annoCollCnt + err2.result.nInserted;
                                                 createLog.debug("Anno-Catch-"+err2.result.nInserted);
                                             } else {
-                                                console.log(`${err2}`);
+                                                createLog.debug(`${err2}`);
                                             }
                                             
                                     });
@@ -894,7 +914,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
         // close handler
         return new Promise( resolve => {
             rd.on('close', async () => {
-                console.log("CLOSE HANDLER");
+                createLog.debug("CLOSE HANDLER");
                 createLog.debug("Close Handler ---");
                 if ( bulkOps.length > 0 ) {
                     try {
@@ -908,7 +928,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                             importCollCnt = importCollCnt + importErr.result.nInserted;
                             createLog.debug(importErr.result.nInserted);
                         } else {
-                            console.log(`${importErr}`);
+                            createLog.debug(`${importErr}`);
                         }
                         
                     }
@@ -925,7 +945,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                             annoCollCnt = annoCollCnt + annoErr.result.nInserted;
                             createLog.debug(annoErr.result.nInserted);
                         } else {
-                            console.log(`${annoErr}`);
+                            createLog.debug(`${annoErr}`);
                         }
                     }
                 }
@@ -939,7 +959,7 @@ async function parseHCSample(rd,sample, vcfId, createLog,statsLog,varCol,batchSi
                         if ( 'result' in spanUpdErr ) {
                             createLog.debug(spanUpdErr.result.nInserted);
                         } else {
-                            console.log(`${spanUpdErr}`);
+                            createLog.debug(`${spanUpdErr}`);
                         }
                         
                     }
@@ -987,12 +1007,12 @@ function getVarType(refA, altA) {
 function getSampleNames(line1) {
     var data = [];
     data = line1.split('\t');
-    console.log("logging line "+line1);
-    console.log(data.length);
+    //console.log("logging line "+line1);
+    //console.log(data.length);
     if ( data.length < 2 ) {
         return ["Unknown"];
     }
-    console.log("LINE CHECK "+line1);
+    //console.log("LINE CHECK "+line1);
     var regS = /FORMAT\t(.*)/;
     var sampInfo = regS.exec(line1);
     var sam1 = sampInfo[1].split('\t');
@@ -1065,7 +1085,7 @@ function normaliseVariant(start,stop,ref,alt) {
     return variant;
 }
 
-async function updateStatus(dbStat,search,update,pushStat) {
+async function updateStatus(dbStat,search,update,pushStat,fileId) {
     try {
         var id  = {'_id' : search};
         var set = {};
@@ -1076,6 +1096,14 @@ async function updateStatus(dbStat,search,update,pushStat) {
         }
         var statsColl = dbStat.collection(importStatsCollection);
         var res = await statsColl.updateOne(id,set);
+
+        // Unassign the file from the sample if the file import status is 9(error)
+        if ( ('status_id' in update )  && ( update.status_id == 9 )) {
+            if ( fileId ) {
+                await db.collection(indSampCollection).updateOne({"fileID":fileId},{$set:{'state':'unassigned'}});
+            }
+        }
+
         return "success";
     } catch(err) {
         throw err;

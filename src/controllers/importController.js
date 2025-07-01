@@ -150,8 +150,8 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                     var intervalObj = setInterval( () => {
                         getAnnotationStatus(token,fileId,db,pid).then( (resp) => {
                             //console.log("Checking for the Annotation Status");
-                            console.log("Logging the response from annotation status");
-                            console.log(resp);
+                            //console.log("Logging the response from annotation status");
+                            //console.log(resp);
                             createLog.debug("Checking for Annotation Status");
                             // remove file only if it exists
                             if ( existsSync(data)) {
@@ -168,7 +168,7 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             // for testing purpose only
                             //if ( resp ) {
                             var respObj = JSON.parse(resp);
-                            console.log(respObj);
+                            //console.log(respObj);
                             
                             if ( respObj && (respObj['message']['status'] == "Annotation Completed" ) ) {
 
@@ -358,9 +358,9 @@ async function updateStatus(db,search,update,pushStat) {
 async function updateSampleSheetStat(db,id,stat) {
     try {
 
-        console.log("Received request and updating status for sample sheet entry");
+        /*console.log("Received request and updating status for sample sheet entry");
         console.log("FILEID is "+ id);
-        console.log("STATUS is "+stat);
+        console.log("STATUS is "+stat);*/
         var search = { fileID: id};
         var update = { $set : {status: stat}};
         var sampColl = db.collection(sampleSheetCollection);

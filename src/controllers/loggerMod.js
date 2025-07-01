@@ -43,16 +43,19 @@ const logger = function logger(func,filename) {
             format.printf(info => `${info.timestamp} ${info.level}: ${info.message}`)
         ),
         transports: [
-            new transports.Console({
+            /*new transports.Console({
                 level: 'info',
+                // updated logger level for testing - 3/12/2024
+               // level: 'debug',
                 format: format.combine(
                     format.colorize(),
                     format.printf(
                         info => `${info.timestamp} ${info.level}: ${info.message}`
                     )
                 )
-            }),
+            }),*/
             new transports.File({
+                  level: 'debug',
                   filename : filename,
                   format : format.combine(
                       format.json(),

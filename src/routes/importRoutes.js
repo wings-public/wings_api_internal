@@ -26,14 +26,15 @@ const {default: PQueue} = require('p-queue');
 const queue = new PQueue({ concurrency: parseInt(importQCnt) });
 const importQueueScraper = require('../routes/queueScrapper').importQueueScraper;
 const importQueueScraperAnno = require('../routes/queueScrapper').importQueueScraperAnno;
+const importQueueScraperSV = require('../routes/queueScrapper').importQueueScraperSV;
 
 const importRoutes = (app) => {
     app.route('/importVCF')
     .post( loginRequired,async (req,res,next) => {
         // Request body contains the VCF Sample ID and VCF File Path/VCF URL
         var reqBody = req.body;
-        console.log("Logging request body");
-        console.log(reqBody);
+        //console.log("Logging request body");
+        //console.log(reqBody);
         var sample = reqBody['Location'];
         var fileId = reqBody['fileID'];
         var batchSize = reqBody['batchSize'];
@@ -47,171 +48,343 @@ const importRoutes = (app) => {
 
         var pid = process.pid;
         //console.log(res);
-        console.log("Received Request for Sample *************** "+sample);
+        /*console.log("Received Request for Sample *************** "+sample);
         console.log("Received Request for sample FILE ID ************** "+fileId);
-        console.log("Process Related to this is "+pid);
-        try {
-             
-            if ( ! sample  || ! fileId  || ! assemblyType || ! seqType || ! sampleLocalID || ! indLocalID || ! indID ) {
-                throw "JSON Structure Error";
-            }
-
-            if ( seqType.toUpperCase() == "PANEL") {
-                if ( !panelType ) {
-                    throw "Panel Type mandatory for PANEL sequencing type";
+        console.log("Process Related to this is "+pid);*/
+        // existing SNP WiNGS code added to this if condition
+        if (fileType !== 'SV_VCF'){
+            try {
+                
+                if ( ! sample  || ! fileId  || ! assemblyType || ! seqType || ! sampleLocalID || ! indLocalID || ! indID ) {
+                    throw "JSON Structure Error";
                 }
-            }
 
-            var urlRe = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/i;
-            //var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz)$/i;
-            var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz|gvcf|gvcf.gz)$/i;
-            if ( !sample.match(urlRe) && !sample.match(serverRe)) {
-                throw "VCFLocation: Only https/http protocol supported for URL (OR) Linux Server file locations supported.Supported FileExtensions: .vcf or .vcf.gz";
-            }
-
-            if (['hg19','hg38','GRCh37','GRCh38'].indexOf(assemblyType) < 0 ) {
-            //if ( assemblyType != 'hg19' || assemblyType != 'hg38' || assemblyType != 'GRCh37' || assemblyType != 'GRCh38' ) {
-                throw "assemblyType: Supported options are hg19/hg38/GRCh37/GRCh38";
-            }
-
-            // Add logic to load the data into a table in mongo and respond as import scheduled
-            // If process is triggered in same millisecond, then this ID will be same. Check if there is such a scenario
-            // to prevent the risk of of two import sample requests in the same millisecond, appending sampleID to the created uDateId
-            //var uDateId = new Date().valueOf();
-            var uDateId = Date.now();
-            //console.log('uDateId is '+uDateId);
-            var tmpId = parseInt(fileId);
-            console.log('tmpId is '+tmpId);
-            uDateId = uDateId + tmpId;
-            //console.log("Unique Date based ID is "+uDateId);
-
-            var importMsg = {"id":uDateId,"status_description":"Import Request Scheduled",'status_id' : 1,'error_info' : null};
-            res.status(200).json({"message":importMsg});
-            // search if an entry exists in sample sheet collection
-            var orCriteria = {};
-            if ( (assemblyType == "hg19") || ( assemblyType == "GRCh37")) {
-                orCriteria['cond'] =  [{AssemblyType: "hg19"},{AssemblyType: "GRCh37"}];
-            } else if ((assemblyType == "hg38") || ( assemblyType == "GRCh38")) {
-                orCriteria['cond'] = [{AssemblyType: "hg38"},{AssemblyType: "GRCh38"}];
-            }
-            
-
-            //res.status(200).json({"id":uDateId,"message":"Import Request Scheduled"});
-
-            var client = getConnection();
-            const db = client.db(dbName);
-            var statsColl = db.collection(importStatsCollection);
-            var sidAssemblyColl = db.collection(sampleAssemblyCollection);
-
-            const indColl = db.collection(individualCollection);
-            const famColl = db.collection(familyCollection);
-
-            // sample sheet entry for the below query will be updated with status 'inprogress'
-            // search with upper case sequence type
-            var search = { status: 'queued', FileLocation: sample, SeqTypeName: seqType.toUpperCase(),IndLocalID: indLocalID, $or : orCriteria['cond'] };
-            var sampShColl = db.collection(sampleSheetCollection);
-            // add fileID to the sample sheet collection
-            await sampShColl.updateOne(search, {$set:{status: "inprogress",fileID: fileId}});
-            // Also check and insert the IndividualID, fileID combination to the new collection. TODO
-
-            indID = parseInt(indID);
-            var uID = parseInt(fileId)+"-"+parseInt(indID);
-
-            var exists = await db.collection(indSampCollection).findOne({_id:uID});
-
-            var indFamily = await indColl.findOne({'_id':indID},{'projection':{'familyId':1}});
-
-            var familyID = "";
-            var trioStatus = 0;
-            if ( ! exists ) {
-                // check if Individual has family.
-                // If yes, check if Individual is part of trio
-                // If yes, include trio:1 in the insert request
-
-                if ( indFamily ) {
-                    familyID = indFamily['familyId'];
-                    trioStatus = await checkTrioMember(indID,familyID);
-                }
-                // fileType was hardcoded as 'VCF' This will be replaced with the request parameter to distinguish VCF and gVCF
-                await db.collection(indSampCollection).insertOne({_id: uID, SampleLocalID : sampleLocalID,IndLocalID : indLocalID,SeqTypeName : seqType.toUpperCase(),FileType: fileType,AssemblyType : assemblyType, individualID : indID, fileID: parseInt(fileId),trio:trioStatus,'panelType': panelType.toUpperCase()});
-            }
-
-
-            // update stats for sample sheet entry to inprogress
-            //console.log(statsColl);
-
-            var statsData = {'_id' : uDateId, 'fileID':fileId, 'sample_loc':sample, 'status_description':'Import Request Scheduled','status_id' : 1,'error_info' : null,'assembly_type': assemblyType, 'sched_time': new Date(),'status_log' : [{status:"Import Request Scheduled","log_time":new Date()}]};
-            await statsColl.insertOne(statsData);
-
-            // Traverse the Table and start the process. Make sure at a time, there are only 4 import process
-
-            // Trigger Process Start
-            var parsePath = path.parse(__dirname).dir;
-            //var logFile = path.join(parsePath,'import','log',`import-route-logger-${fileId}-${uDateId}.log`);
-            var logFile = `import-route-logger-${fileId}-${uDateId}.log`;
-            var createLog = loggerMod.logger('import',logFile);
-            createLog.debug("Import Request Scheduled");
-
-            var qcount = 0;
-            queue.on('active', () => {
-                console.log(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
-                createLog.debug(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
-            });
-
-            queue.add( async () => { 
-                try {
-                    await importQueueScraper(uDateId,sample,fileId,batchSize,assemblyType);
-                    createLog.debug("await completed for importQueueScrapper");
-                    // include annotation version if defined
-                    var annoVer = "";
-                    if ( process.env.CURR_ANNO_VER ) {
-                        annoVer = process.env.CURR_ANNO_VER;
+                if ( seqType.toUpperCase() == "PANEL") {
+                    if ( !panelType ) {
+                        throw "Panel Type mandatory for PANEL sequencing type";
                     }
-
-                    await statsColl.updateOne({'_id':uDateId},
-                    {$set : {'status_description' : 'Import Request Completed','status_id':8,'finish_time': new Date(), "anno_ver": annoVer},
-                    $push: {'status_log': {status:"Import Request Completed",log_time: new Date()}}});
-                    // Commented - 28/06/2023 This collection is not used in trio.
-                    //await sidAssemblyColl.insertOne({'_id':fileId,'assembly_type':assemblyType, "fileID": parseInt(fileId)});
-                    // update status for sample sheet entry
-                    await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import success"}});
-                    // Here include trip related checks
-                    createLog.debug("Import Request Completed");
-                    console.log("Done : Import Task"); 
-                    console.log("trioStatus is "+trioStatus);
-                    if (trioStatus) {
-                        await triggerAssemblySampTrio(familyID,seqType,assemblyType);
-                    }
-                    
-                } catch(err) {
-                     var id  = {'_id' : uDateId,'status_id':{$ne:9}};
-                     var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
-                     await statsColl.updateOne(id,set);
-                     // update status for sample sheet entry
-                     await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import failed"}});
-                     createLog.debug("Adding error for importQueueScrapper");
-                     createLog.debug("Import Request Error");
-                     createLog.debug(err);
-                     console.log(err);
                 }
-            } );
 
-            createLog.debug("******************* QUEUE STATS *************************");
-            createLog.debug('Added : importQueue to import router Queue');
-            createLog.debug(`Queue Size : ${queue.size}`);
-            createLog.debug(`Pending promises: ${queue.pending}`);
-            
-            // nodejs request module and trigger https Annotation Request
-            // handler specific to parent process
-            process.on('beforeExit', (code) => {
-                createLog.debug(`--------- About to exit PARENT PROCESS with code: ${code}`);
-                console.log(`--------- About to exit PARENT PROCESS with code: ${code}`);
-            });
-        } catch(err) {
-            console.log("*************Looks like we have received an error message");
-            console.log(err);
-            next(`${err}`);
+                var urlRe = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/i;
+                //var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz)$/i;
+                var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz|gvcf|gvcf.gz)$/i;
+                if ( !sample.match(urlRe) && !sample.match(serverRe)) {
+                    throw "VCFLocation: Only https/http protocol supported for URL (OR) Linux Server file locations supported.Supported FileExtensions: .vcf or .vcf.gz";
+                }
+
+                if (['hg19','hg38','GRCh37','GRCh38'].indexOf(assemblyType) < 0 ) {
+                //if ( assemblyType != 'hg19' || assemblyType != 'hg38' || assemblyType != 'GRCh37' || assemblyType != 'GRCh38' ) {
+                    throw "assemblyType: Supported options are hg19/hg38/GRCh37/GRCh38";
+                }
+
+                // Add logic to load the data into a table in mongo and respond as import scheduled
+                // If process is triggered in same millisecond, then this ID will be same. Check if there is such a scenario
+                // to prevent the risk of of two import sample requests in the same millisecond, appending sampleID to the created uDateId
+                //var uDateId = new Date().valueOf();
+                var uDateId = Date.now();
+                //console.log('uDateId is '+uDateId);
+                var tmpId = parseInt(fileId);
+                //console.log('tmpId is '+tmpId);
+                uDateId = uDateId + tmpId;
+                //console.log("Unique Date based ID is "+uDateId);
+
+                var importMsg = {"id":uDateId,"status_description":"Import Request Scheduled",'status_id' : 1,'error_info' : null};
+                res.status(200).json({"message":importMsg});
+                // search if an entry exists in sample sheet collection
+                var orCriteria = {};
+                if ( (assemblyType == "hg19") || ( assemblyType == "GRCh37")) {
+                    orCriteria['cond'] =  [{AssemblyType: "hg19"},{AssemblyType: "GRCh37"}];
+                } else if ((assemblyType == "hg38") || ( assemblyType == "GRCh38")) {
+                    orCriteria['cond'] = [{AssemblyType: "hg38"},{AssemblyType: "GRCh38"}];
+                }
+                
+
+                //res.status(200).json({"id":uDateId,"message":"Import Request Scheduled"});
+
+                var client = getConnection();
+                const db = client.db(dbName);
+                var statsColl = db.collection(importStatsCollection);
+                var sidAssemblyColl = db.collection(sampleAssemblyCollection);
+
+                const indColl = db.collection(individualCollection);
+                const famColl = db.collection(familyCollection);
+
+                // sample sheet entry for the below query will be updated with status 'inprogress'
+                // search with upper case sequence type
+                var search = { status: 'queued', FileLocation: sample, SeqTypeName: seqType.toUpperCase(),IndLocalID: indLocalID, $or : orCriteria['cond'] };
+                var sampShColl = db.collection(sampleSheetCollection);
+                // add fileID to the sample sheet collection
+                await sampShColl.updateOne(search, {$set:{status: "inprogress",fileID: fileId}});
+                // Also check and insert the IndividualID, fileID combination to the new collection. TODO
+
+                indID = parseInt(indID);
+                var uID = parseInt(fileId)+"-"+parseInt(indID);
+
+                var exists = await db.collection(indSampCollection).findOne({_id:uID});
+
+                var indFamily = await indColl.findOne({'_id':indID},{'projection':{'familyId':1}});
+
+                var familyID = "";
+                var trioStatus = 0;
+                if ( ! exists ) {
+                    // check if Individual has family.
+                    // If yes, check if Individual is part of trio
+                    // If yes, include trio:1 in the insert request
+
+                    if ( indFamily ) {
+                        familyID = indFamily['familyId'];
+                        trioStatus = await checkTrioMember(indID,familyID);
+                    }
+                    // fileType was hardcoded as 'VCF' This will be replaced with the request parameter to distinguish VCF and gVCF
+                    await db.collection(indSampCollection).insertOne({_id: uID, SampleLocalID : sampleLocalID,IndLocalID : indLocalID,SeqTypeName : seqType.toUpperCase(),FileType: fileType,AssemblyType : assemblyType, individualID : indID, fileID: parseInt(fileId),trio:trioStatus,'panelType': panelType.toUpperCase()});
+                }
+
+
+                // update stats for sample sheet entry to inprogress
+                //console.log(statsColl);
+
+                var statsData = {'_id' : uDateId, 'fileID':fileId, 'sample_loc':sample, 'status_description':'Import Request Scheduled','status_id' : 1,'error_info' : null,'assembly_type': assemblyType, 'sched_time': new Date(),'status_log' : [{status:"Import Request Scheduled","log_time":new Date()}]};
+                await statsColl.insertOne(statsData);
+
+                // Traverse the Table and start the process. Make sure at a time, there are only 4 import process
+
+                // Trigger Process Start
+                var parsePath = path.parse(__dirname).dir;
+                //var logFile = path.join(parsePath,'import','log',`import-route-logger-${fileId}-${uDateId}.log`);
+                var logFile = `import-route-logger-${fileId}-${uDateId}.log`;
+                var createLog = loggerMod.logger('import',logFile);
+                createLog.debug("Import Request Scheduled");
+
+                var qcount = 0;
+                queue.on('active', () => {
+                    console.log(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+                    createLog.debug(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+                });
+
+                queue.add( async () => { 
+                    try {
+                        await importQueueScraper(uDateId,sample,fileId,batchSize,assemblyType);
+                        createLog.debug("await completed for importQueueScrapper");
+                        // include annotation version if defined
+                        var annoVer = "";
+                        if ( process.env.CURR_ANNO_VER ) {
+                            annoVer = process.env.CURR_ANNO_VER;
+                        }
+
+                        await statsColl.updateOne({'_id':uDateId},
+                        {$set : {'status_description' : 'Import Request Completed','status_id':8,'finish_time': new Date(), "anno_ver": annoVer},
+                        $push: {'status_log': {status:"Import Request Completed",log_time: new Date()}}});
+                        // Commented - 28/06/2023 This collection is not used in trio.
+                        //await sidAssemblyColl.insertOne({'_id':fileId,'assembly_type':assemblyType, "fileID": parseInt(fileId)});
+                        // update status for sample sheet entry
+                        await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import success"}});
+                        // Here include trip related checks
+                        createLog.debug("Import Request Completed");
+                        console.log("Done : Import Task"); 
+                        console.log("trioStatus is "+trioStatus);
+                        if (trioStatus) {
+                            await triggerAssemblySampTrio(familyID,seqType,assemblyType);
+                        }
+                        
+                    } catch(err) {
+                        var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                        var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                        await statsColl.updateOne(id,set);
+                        // update status for sample sheet entry
+                        await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import failed"}});
+                        createLog.debug("Adding error for importQueueScrapper");
+                        createLog.debug("Import Request Error");
+                        // unassigned failed file IDs 
+                        await db.collection(indSampCollection).updateOne({"fileID":fileId},{$set:{'state':'unassigned'}});
+                        createLog.debug(err);
+                        console.log(err);
+                    }
+                } );
+
+                createLog.debug("******************* QUEUE STATS *************************");
+                createLog.debug('Added : importQueue to import router Queue');
+                createLog.debug(`Queue Size : ${queue.size}`);
+                createLog.debug(`Pending promises: ${queue.pending}`);
+                
+                // nodejs request module and trigger https Annotation Request
+                // handler specific to parent process
+                process.on('beforeExit', (code) => {
+                    createLog.debug(`--------- About to exit PARENT PROCESS with code: ${code}`);
+                    console.log(`--------- About to exit PARENT PROCESS with code: ${code}`);
+                });
+            } catch(err) {
+                console.log("*************Looks like we have received an error message");
+                console.log(err);
+                next(`${err}`);
+            }
+        } else {
+            try {
+                
+                if ( ! sample  || ! fileId  || ! assemblyType || ! seqType || ! sampleLocalID || ! indLocalID || ! indID ) {
+                    throw "JSON Structure Error";
+                }
+
+                if ( seqType.toUpperCase() == "PANEL") {
+                    if ( !panelType ) {
+                        throw "Panel Type mandatory for PANEL sequencing type";
+                    }
+                }
+
+                var urlRe = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/i;
+                //var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz)$/i;
+                var serverRe = /^[\/a-zA-Z_0-9-\.]+\.(vcf|vcf.gz)$/i;
+                if ( !sample.match(urlRe) && !sample.match(serverRe)) {
+                    throw "VCFLocation: Only https/http protocol supported for URL (OR) Linux Server file locations supported.Supported FileExtensions: .vcf or .vcf.gz";
+                }
+
+                if (['hg38','GRCh38'].indexOf(assemblyType) < 0 ) {
+                //if ( assemblyType != 'hg19' || assemblyType != 'hg38' || assemblyType != 'GRCh37' || assemblyType != 'GRCh38' ) {
+                    throw "assemblyType: Supported options are hg38/GRCh38";
+                }
+
+                // Add logic to load the data into a table in mongo and respond as import scheduled
+                // If process is triggered in same millisecond, then this ID will be same. Check if there is such a scenario
+                // to prevent the risk of of two import sample requests in the same millisecond, appending sampleID to the created uDateId
+                //var uDateId = new Date().valueOf();
+                var uDateId = Date.now();
+                //console.log('uDateId is '+uDateId);
+                var tmpId = parseInt(fileId);
+                console.log('tmpId is '+tmpId);
+                uDateId = uDateId + tmpId;
+                //console.log("Unique Date based ID is "+uDateId);
+
+                var importMsg = {"id":uDateId,"status_description":"Import Request Scheduled",'status_id' : 1,'error_info' : null};
+                res.status(200).json({"message":importMsg});
+                // search if an entry exists in sample sheet collection
+                var orCriteria = {};
+                 if ((assemblyType == "hg38") || ( assemblyType == "GRCh38")) {
+                    orCriteria['cond'] = [{AssemblyType: "hg38"},{AssemblyType: "GRCh38"}];
+                }
+                
+
+                //res.status(200).json({"id":uDateId,"message":"Import Request Scheduled"});
+
+                var client = getConnection();
+                const db = client.db(dbName);
+                var statsColl = db.collection(importStatsCollection);
+                var sidAssemblyColl = db.collection(sampleAssemblyCollection);
+
+                const indColl = db.collection(individualCollection);
+                const famColl = db.collection(familyCollection);
+
+                // sample sheet entry for the below query will be updated with status 'inprogress'
+                // search with upper case sequence type
+                var search = { status: 'queued', FileLocation: sample, SeqTypeName: seqType.toUpperCase(),IndLocalID: indLocalID, $or : orCriteria['cond'] };
+                var sampShColl = db.collection(sampleSheetCollection);
+                // add fileID to the sample sheet collection
+                await sampShColl.updateOne(search, {$set:{status: "inprogress",fileID: fileId}});
+                // Also check and insert the IndividualID, fileID combination to the new collection. TODO
+
+                indID = parseInt(indID);
+                var uID = parseInt(fileId)+"-"+parseInt(indID);
+
+                var exists = await db.collection(indSampCollection).findOne({_id:uID});
+
+                var indFamily = await indColl.findOne({'_id':indID},{'projection':{'familyId':1}});
+
+                var familyID = "";
+                var trioStatus = 0;
+                if ( ! exists ) {
+                    // check if Individual has family.
+                    // If yes, check if Individual is part of trio
+                    // If yes, include trio:1 in the insert request
+
+                    if ( indFamily ) {
+                        familyID = indFamily['familyId'];
+                        trioStatus = await checkTrioMember(indID,familyID);
+                    }
+                    // fileType was hardcoded as 'VCF' This will be replaced with the request parameter to distinguish VCF and gVCF
+                    await db.collection(indSampCollection).insertOne({_id: uID, SampleLocalID : sampleLocalID,IndLocalID : indLocalID,SeqTypeName : seqType.toUpperCase(),FileType: fileType,AssemblyType : assemblyType, individualID : indID, fileID: parseInt(fileId),trio:trioStatus,'panelType': panelType.toUpperCase()});
+                }
+
+
+                // update stats for sample sheet entry to inprogress
+                //console.log(statsColl);
+
+                var statsData = {'_id' : uDateId, 'fileID':fileId, 'sample_loc':sample, 'status_description':'Import Request Scheduled','status_id' : 1,'error_info' : null,'assembly_type': assemblyType, 'sched_time': new Date(),'status_log' : [{status:"Import Request Scheduled","log_time":new Date()}]};
+                await statsColl.insertOne(statsData);
+
+                // Traverse the Table and start the process. Make sure at a time, there are only 4 import process
+
+                // Trigger Process Start
+                var parsePath = path.parse(__dirname).dir;
+                //var logFile = path.join(parsePath,'import','log',`import-route-logger-${fileId}-${uDateId}.log`);
+                var logFile = `import-route-logger-${fileId}-${uDateId}.log`;
+                var createLog = loggerMod.logger('import',logFile);
+                createLog.debug("Import Request Scheduled");
+
+                var qcount = 0;
+                queue.on('active', () => {
+                    console.log(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+                    createLog.debug(`Working on item #${++qcount}.  Size: ${queue.size}  Pending: ${queue.pending}`);
+                });
+
+                queue.add( async () => { 
+                    try {
+                        //change queue scraper
+                        await importQueueScraperSV(uDateId,sample,fileId,batchSize,assemblyType,fileType);
+                        console.log("Return to after importQueueScraperSV");
+                        createLog.debug("await completed for importQueueScrapper");
+                        // include annotation version if defined (add for annotSV)
+                        var annoVer = "";
+                        if ( process.env.CURR_ANNO_VER_SV ) {
+                            annoVer = process.env.CURR_ANNO_VER_SV;
+                        }
+
+                        await statsColl.updateOne({'_id':uDateId},
+                        {$set : {'status_description' : 'Import Request Completed','status_id':8,'finish_time': new Date(), "anno_ver": annoVer},
+                        $push: {'status_log': {status:"Import Request Completed",log_time: new Date()}}});
+                        // Commented - 28/06/2023 This collection is not used in trio.
+                        //await sidAssemblyColl.insertOne({'_id':fileId,'assembly_type':assemblyType, "fileID": parseInt(fileId)});
+                        // update status for sample sheet entry
+                        await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import success"}});
+                        // Here include trip related checks
+                        createLog.debug("Import Request Completed");
+                        console.log("Done : Import Task"); 
+                        console.log("trioStatus is "+trioStatus);
+                        if (trioStatus) {
+                            await triggerAssemblySampTrio(familyID,seqType,assemblyType);
+                        }
+                        console.log("Return to after triggerAssemblySampTrio")
+                        
+                    } catch(err) {
+                        var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                        var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                        await statsColl.updateOne(id,set);
+                        // update status for sample sheet entry
+                        await sampShColl.updateOne({"fileID":fileId }, {$set:{status: "import failed"}});
+                        createLog.debug("Adding error for importQueueScrapper");
+                        createLog.debug("Import Request Error");
+                        // unassigned failed file IDs 
+                        await db.collection(indSampCollection).updateOne({"fileID":fileId},{$set:{'state':'unassigned'}});
+                        createLog.debug(err);
+                        console.log(err);
+                    }
+                } );
+                console.log("do we exit from queue")
+                createLog.debug("******************* QUEUE STATS *************************");
+                createLog.debug('Added : importQueue to import router Queue');
+                createLog.debug(`Queue Size : ${queue.size}`);
+                createLog.debug(`Pending promises: ${queue.pending}`);
+                
+                // nodejs request module and trigger https Annotation Request
+                // handler specific to parent process
+                process.on('beforeExit', (code) => {
+                    createLog.debug(`--------- About to exit PARENT PROCESS with code: ${code}`);
+                    console.log(`--------- About to exit PARENT PROCESS with code: ${code}`);
+                });
+            } catch(err) {
+                console.log("*************Looks like we have received an error message");
+                console.log(err);
+                next(`${err}`);
+            }
         }
+
     });
 
     app.route('/annotateVCF')
@@ -347,6 +520,79 @@ const importRoutes = (app) => {
                     res.status(200).json({"message":statusMsg});
                 }
             } 
+        } catch(err1) {
+            next(`${err1}`);
+        }
+    });
+
+    // This endpoint will be called to check the status of sample sheet
+    app.route('/sampleSheet/status/:date')
+    .get(loginRequired,async(req,res,next) => {
+        var date = req.params.date;
+        try {
+            if (  ! date   ) {
+                throw "date parameter required";
+            }
+
+            //let dateInput = "2021.06.24"; // Hardcode the date to test (can be in multiple formats)
+            let dateObj = new Date(date); //ISO format
+            //console.log(dateObj); //to test
+            
+            if (dateObj != "Invalid Date") {
+                const nextDate = new Date(date);
+                nextDate.setDate(dateObj.getDate() + 1);
+
+                var client = getConnection();
+                const db = client.db(dbName);
+                var sampleShColl = db.collection(sampleSheetCollection);
+                var importStatColl = db.collection(importStatsCollection);
+
+                const query = {
+                    "loadedTime": {
+                      $gte: dateObj,
+                      $lt: nextDate
+                    }
+                  };
+                  
+                
+                console.dir(query,{"depth":null});
+                 // Execute query
+                const data = await sampleShColl.find(query);
+                //console.log(date);
+                var msg = [];
+
+                for await (const doc of data) {
+                    //console.dir(doc);
+                    output = {loadedTime: doc.loadedTime};
+                    output.SampleLocalID = doc.SampleLocalID;
+                    if (doc.fileID !== undefined) {
+                        const query2 = { fileID: doc.fileID };
+                        const date2 = await importStatColl.findOne(query2);
+                        output.fileID = date2.fileID;
+                        output.Status = date2.status_description;
+                    } else if (doc.fileID == undefined) {
+                        //Status if no file ID was provided
+                        //console.log(doc.statMsg)
+                        var stat = "";
+                        if ( doc.status != "import success") {
+                            stat = doc.status;
+                        } else if (doc.statMsg === "sample sheet entries sent to wings") {
+                            stat = "retrieved";
+                        } else if (doc.statMsg === "sample sheet entry loaded") {
+                            stat = "validated";
+                        }
+                        output.fileID = null;
+                        output.Status = stat;
+                    }
+                    
+                    //Combine the required information
+                    msg.push(output);
+                }
+
+                res.status(200).json({"message":msg});
+            } else {
+                next("invalid date");
+            }
         } catch(err1) {
             next(`${err1}`);
         }

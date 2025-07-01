@@ -43,7 +43,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         var fastaFile;
         var rejectFileTmp;
         var variantFile = liftMntSrc+'/'+reqId+'-variant.txt';
-        console.log("********** VARIANT FILE is "+variantFile);
+        //console.log("********** VARIANT FILE is "+variantFile);
         var chainurl;
         var fastaurl;
         var dictFile;
@@ -59,24 +59,24 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         if ( liftoverDocker == "false" ) { 
             // gatk standalone/installed version will be used.
             // create folders under liftMntDst
-            console.log("False section");
+            //console.log("False section");
             basePath = liftMntDst;
         } else {
             // gatk docker will be used
             // create folders under liftMntSrc
             basePath = liftMntSrc;
-            console.log("True section");
+            //console.log("True section");
         }
         
         var path1 = path.join(basePath,"hg19");
         var path2 = path.join(basePath,"hg38");
         if (!fs.existsSync(path1)) {
             fs.mkdirSync(path1);
-            console.log("Created required path "+path1);
+            //console.log("Created required path "+path1);
         }
         if (!fs.existsSync(path2)) {
             fs.mkdirSync(path2);
-            console.log("Created required path "+path2);
+            //console.log("Created required path "+path2);
         }
 
 
@@ -131,8 +131,8 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         var dockOpFile = liftMntDst+outputFile;
         var rejectFile = liftMntDst+rejectFileTmp;
         var hostRejectFile = liftMntSrc+rejectFileTmp;
-        console.log(`hostLoc : ${hostLoc}`);
-        console.log(`dockLoc ${dockLoc}`);
+        //console.log(`hostLoc : ${hostLoc}`);
+        //console.log(`dockLoc ${dockLoc}`);
         var stream;
         var cmd = "";
 
@@ -172,7 +172,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
             if (err) {
                 console.log("Logging error message below spawn error section: ");
             } else {
-                console.log("liftover performed");
+                //console.log("liftover performed");
                 //console.log(stdout);
                 // read the file
 
@@ -191,18 +191,18 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
 
                 
                 if ( lineArr.length > 0 ) {
-                    console.log("liftover performed and there is some liftover data");
+                    //console.log("liftover performed and there is some liftover data");
                     //console.log(lineArr);
                     var liftedData = lineArr[0];
                     var varPos = liftedData.split('\t');
                     var re = /chr/g;
                     var chr = varPos[0].replace(re, '');
                     var liftedPos = chr+'-'+varPos[1]+'-'+varPos[3]+'-'+varPos[4];
-                    console.log(`Lifted variant is ${liftedPos}`);
+                    //console.log(`Lifted variant is ${liftedPos}`);
                 
                     try {
                         var res = await writeFile(variantFile,liftedPos);
-                        console.log(`Variant data has been written to the file ${variantFile}`);
+                        //console.log(`Variant data has been written to the file ${variantFile}`);
                     } catch(err) {
                         console.log(err);
                         console.log("Error in writing data to the variant file");
@@ -225,9 +225,9 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
                     } catch(err) {
 
                     }
-                    console.log("No data lifted over");    
+                    //console.log("No data lifted over");    
                     var res = await writeFile(variantFile,rejectData);
-                    console.log("Checking output file "+hostOpFile);
+                    //console.log("Checking output file "+hostOpFile);
                 }
                     
                 
@@ -251,7 +251,7 @@ async function execSeqDict(faFile,dictFile) {
         } else {
             cmd1 = `docker run  --rm -v ${liftMntSrc}:${liftMntDst}   ${gatkImg}  gatk --java-options "-Xmx6G"  CreateSequenceDictionary -R ${faFile} -O ${dictFile}`;
         }
-        console.log(`Sequence dictionary command is ${cmd1}`);
+        //console.log(`Sequence dictionary command is ${cmd1}`);
 
         if ( ! fs.existsSync(dictFile)) {
             return new Promise( (resolve,reject) => {
@@ -343,7 +343,7 @@ async function getFileData(rd,filename) {
                 if ( ! line.match(lineRe) && ! line.match(blankLine)) {
                     //createLog.debug(line);
                     lineArr.push(line);
-                    console.log(line);
+                    //console.log(line);
                 } else {
                     //createLog.debug(line);
                     headerArr.push(line);

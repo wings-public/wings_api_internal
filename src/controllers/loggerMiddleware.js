@@ -54,8 +54,8 @@ function createRequestLogger(transports) {
         requestLogger.info(req.method);
         requestLogger.info(req.params);
         requestLogger.info(req.body);
-        const maskH = maskdata.maskJSONFields(headers,maskOpt);
-        requestLogger.info(maskH);
+        //const maskH = maskdata.maskJSONFields(headers,maskOpt);
+        //requestLogger.info(maskH);
         requestLogger.info("Request Logging the socket data - remoteAddress, remoteFamily");
         requestLogger.info(remoteAddress);
         requestLogger.info(remoteFamily);

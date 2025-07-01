@@ -1,0 +1,13 @@
+{
+    "collectionName": "wingsAnnoConfig",
+    "options": { },
+    "data": [
+        { "type":"snp","version" : "v1","assembly_type" : "hg19", "ensembl-vep": "release_105","cadd" : "v1.6.1","gnomAD" : "v2.0.1"},
+        { "type":"snp","version" : "v1","assembly_type" : "hg38", "ensembl-vep": "release_105","cadd" : "v1.6.1","gnomAD" : "v2.0.1"},
+        { "type":"snp","version" : "v2","assembly_type" : "hg19", "ensembl-vep": "release_109.3","cadd" : "v1.6.2","gnomAD" : "v2.0.1"},
+        { "type":"snp","version" : "v2","assembly_type" : "hg19", "ensembl-vep": "release_109.3","cadd" : "v1.6.2","gnomAD" : "v2.0.1"},
+        { "type":"snp","version" : "v3","assembly_type" : "hg19", "ensembl-vep": "release_112.0","cadd" : "v1.6.2","gnomAD" : "v2.0.1"},
+        { "type":"snp","version" : "v3","assembly_type" : "hg19", "ensembl-vep": "release_112.0","cadd" : "v1.6.2","gnomAD" : "v4.0.1"}
+    ]
+  }
+  

@@ -12,6 +12,7 @@ const configData = require('../config/config.js');
 const { app:{instance,logLoc}, db:{sampleAssemblyCollection,familyCollection,dbName,importCollection1,importCollection2,trioCollection} } = configData;
 const closeSignalHandler = require('../controllers/execChildProcs.js').closeSignalHandler;
 const trioQueueScrapper = require('../routes/queueScrapper').trioQueueScrapper;
+const SVtrioQueueScrapper = require('../routes/queueScrapper').SVtrioQueueScrapper;
 const getConnection = require('../controllers/dbConn.js').getConnection;
 const trioQueue = require('../controllers/entityController.js').trioQueue;
 //var db = require('../controllers/db.js');
@@ -44,7 +45,7 @@ const trioQueue = require('../controllers/entityController.js').trioQueue;
 
             var doc = await trioColl.findOne({'TrioLocalID': localID,'TrioStatus':{$nin:['disabled','error']}});
             var trioReq = {};
-            console.log(doc);
+            //console.log(doc);
             var trioArr = doc['trio'];
             var id = doc['TrioLocalID'];
             trioReq['assembly_type'] = doc['AssemblyType'];
@@ -54,21 +55,29 @@ const trioQueue = require('../controllers/entityController.js').trioQueue;
                 var trHash = trioArr[idx];
                 var relation = trHash['relation'];
                 var fileID = trHash['fileID'];
-                console.log(`relation : ${relation}`);
-                console.log(`fileID: ${fileID}`);
+                //console.log(`relation : ${relation}`);
+                //console.log(`fileID: ${fileID}`);
                 tmpRel[relation] = fileID;
             }
             trioReq['family'] = tmpRel;
-            console.log("Logging trioReq object below");
+            //console.log("Logging trioReq object below");
             console.dir(trioReq,{"depth":null});
             
             trioQueue.add( async () => { 
                 try {
-                    console.log("Logging trioReq object inside queue ************");
+                    //console.log("Logging trioReq object inside queue ************");
                     console.dir(trioReq,{"depth":null});
-                    await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'scheduled','TrioErrMsg':''}});
-                    await trioQueueScrapper(pid,JSON.parse(JSON.stringify(trioReq)));
-                    await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'completed','TrioErrMsg':''}});
+                    // SV updates added to differentiate the queue based on file type
+                    if (!id.includes('SV_VCF')) {
+                        await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'scheduled','TrioErrMsg':''}});
+                        await trioQueueScrapper(pid,JSON.parse(JSON.stringify(trioReq)));
+                        await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'completed','TrioErrMsg':''}});
+                    } else {
+                        //console.log("Logging trioReq object inside queue ************");
+                        await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'scheduled','TrioErrMsg':''}});
+                        await SVtrioQueueScrapper(pid,JSON.parse(JSON.stringify(trioReq)));
+                        await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus':'completed','TrioErrMsg':''}});
+                    }
                 } catch(err) {
                     console.log(err);
                     await trioColl.updateOne({'TrioLocalID':id,'TrioStatus':{$nin:['disabled','error']}},{$set : {'TrioStatus' : 'error','TrioErrMsg':`${err}`}});

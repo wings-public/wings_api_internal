@@ -23,3 +23,4 @@
 ###############################
 #PIName,FileLocation,FileType,Description,AssemblyType,SampleLocalID,IndLocalID,SampleType,SequenceMachine,SeqKitModel,SequencingCoverage,SequenceType,ReadLength,DateOfSequencing,PanelTypeName,IndividualFName,IndividualLName,IndividualGender,IndividualBirthDate
 #Please enter the values below in csv format
+#Bart Loeys,/home/nsattanathan/VCF_data/trio_4/WESID-134036-m.haplotypecaller.final.vcf.idx,VCF INDEX,test description,hg19,dna119887,indlocal21,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,

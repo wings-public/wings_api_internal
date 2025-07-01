@@ -10,7 +10,7 @@ var stats = promisify(stat);
 const argParser = require('commander');
 var loggerMod = require('../controllers/loggerMod');
 const configData = require('../config/config.js');
-const { app:{instance,logLoc}, db:{importStatsCollection} } = configData;
+const { app:{instance,logLoc}, db:{importStatsCollection,indSampCollection} } = configData;
 const closeSignalHandler = require('../controllers/execChildProcs.js').closeSignalHandler;
 const getAnnoApiToken = require('../controllers/annotationController.js').getAnnoApiToken;
 const triggerAnnotationStreamPipeline = require('../controllers/annotationController.js').triggerAnnotationStreamPipeline;
@@ -37,8 +37,8 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
         var assemblyType = argParser.assemblyType;
         var uDateId = parseInt(argParser.import_id);
         
-        console.log("importControllerAnno.js");
-        console.log(`fileId:${fileId} uDateId:${uDateId} assemblyType:${assemblyType}`);
+        //console.log("importControllerAnno.js");
+        //console.log(`fileId:${fileId} uDateId:${uDateId} assemblyType:${assemblyType}`);
         // annotation type - high level (VEP or CADD)
         var annoType = argParser.anno_type;
         // comma separated field type
@@ -117,9 +117,12 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                     var defaultAnno = 'false';
                     createLog.debug("Received token from the API Call. Trigger Process to start the Annotations");
                     var response = "";
-                    if ( annoType == "Def" ) {
+                    if ( annoType == "Def") {
                         response = await triggerAnnotationStreamPipeline(token,db,uDateId,data,zipFile,fileId,assemblyType,createLog);
                     } else {
+                        if (annoFields == "Def") {
+                            defaultAnno = 'true';
+                        }
                         response = await triggerAnnotationStreamPipeline(token,db,uDateId,data,zipFile,fileId,assemblyType,createLog,defaultAnno,annoType,annoFields);
                     }
                     
@@ -151,8 +154,8 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                     var intervalObj = setInterval( () => {
                         getAnnotationStatus(token,fileId,db,uDateId).then( (resp) => {
                             //console.log("Checking for the Annotation Status");
-                            console.log("Logging the response from annotation status")
-                            console.log(resp);
+                            //console.log("Logging the response from annotation status")
+                            //console.log(resp);
                             createLog.debug("Checking for Annotation Status");
                             // remove file only if it exists
                             if ( existsSync(data)) {
@@ -169,7 +172,7 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             // for testing purpose only
                             //if ( resp ) {
                             var respObj = JSON.parse(resp);
-                            console.log(respObj);
+                            //console.log(respObj);
                             
                             if ( respObj && (respObj['message']['status'] == "Annotation Completed" ) ) {
                                 // update current annotation version
@@ -219,7 +222,10 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                                             var newAnno = "reannotate"
                                             if ( annoType == "Def" ) {
                                                 newAnno = "";
-                                            }
+                                            } 
+                                            
+                                            createLog.debug("Calling updateAnnotations function with the below arguments");
+                                            createLog.debug(`fileId:${fileId} dest1:${dest1} assemblyType:${assemblyType} newAnno:${newAnno}`);
                                             updateAnnotations(fileId,dest1,assemblyType,newAnno).then((status) => {
                                                 createLog.debug("4:novel Annotations updated");
                                                 process.exit(0);
@@ -275,7 +281,7 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
                             var pushSt = {'status_log': {status:"Error",log_time: new Date()}};
                             createLog.debug("Clearing the Interval as the Annotation Status need not be monitored further");
                             createLog.debug("Annotation Error "+err);
-                            updateStatus(db,uDateId,status,pushSt).then ( (resp) => {
+                            updateStatus(db,uDateId,status,pushSt,fileId).then ( (resp) => {
                                 clearInterval(intervalObj);
                                 process.exit(1);
                             }).catch( (err) => {
@@ -296,7 +302,7 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
 		            var errInfo = "Annotation Process Error "+err1;
 		            var status = {'status_description':'Error','status_id': 9, 'error_info' : errInfo,'finish_time': new Date() };
 		            var pushSt = {'status_log': {status:"Error",log_time: new Date()}};
-                    updateStatus(db,uDateId,status,pushSt).then ( (resp) => {
+                    updateStatus(db,uDateId,status,pushSt,fileId).then ( (resp) => {
                         process.exit(1);
 	                }).catch( (err) => {
 	                    createLog.debug("Error in updating Annotation error status "+err);
@@ -324,7 +330,7 @@ const updateAnnotations = require('../controllers/annotationController.js').upda
     }
 }) ();
 
-async function updateStatus(db,search,update,pushStat) {
+async function updateStatus(db,search,update,pushStat,fileId) {
     try {
         var id  = {'_id' : search};
         var set = {};
@@ -334,11 +340,19 @@ async function updateStatus(db,search,update,pushStat) {
             set = {$set : update };
         }
         
-        console.log("##############################################");
+        /*console.log("##############################################");
         console.log("Request to update the status for the Import");
         console.log(id);
         console.log(set);
-        console.log("##############################################");
+        console.log("##############################################");*/
+
+        // include additional update if the status update is for error.
+        if ( ('status_id' in update )  && ( update.status_id == 9 )) {
+            if ( fileId ) {
+                await db.collection(indSampCollection).updateOne({"fileID":fileId},{$set:{'state':'unassigned'}});
+            }
+        }
+
         var statsColl = db.collection(importStatsCollection);
         var res = await statsColl.updateOne(id,set);
         return "success";

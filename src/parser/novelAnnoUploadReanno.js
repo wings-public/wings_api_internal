@@ -74,12 +74,31 @@ var client;
     const db = client.db(dbName);
     //createLog.debug("VariantAnnoCollection is "+variantAnnoCollection);
     var variantAnnoCollection;
+    var archiveAnnoColl;
+
+    // Versioned anno : archived annotation collection to be used for getting novel variants
+    var verAnnoColl1;var verAnnoColl2;var annoVer;
+    try {
+        if ( process.env.HIST_ANNO_VER ) {
+            console.log("History Anno versioning true");
+            annoVer = process.env.HIST_ANNO_VER;
+            verAnnoColl1 = variantAnnoCollection1+annoVer;
+            verAnnoColl2 = variantAnnoCollection2+annoVer;
+        }
+    } catch(err) {
+        console.log(err);
+    }
+
+
     if ( assemblyType == "GRCh37") {
         variantAnnoCollection = variantAnnoCollection1;
+        archiveAnnoColl = verAnnoColl1;
     } else if ( assemblyType == "GRCh38" ) {
         variantAnnoCollection = variantAnnoCollection2;
+        archiveAnnoColl = verAnnoColl2;
     } 
     var annoCollection = db.collection(variantAnnoCollection);
+    var archiveAnnoCollObj = db.collection(archiveAnnoColl);
     var annoType = "def";
     if ( argParser.type ) {
         annoType = argParser.type;
@@ -87,7 +106,7 @@ var client;
 
     //// Validate VCF File, ID and also ID for Multi-Sample VCF Files ///
     try {
-        var val = await parseFile(assemblyType,inputFile,createLog,annoCollection,annoType);
+        var val = await parseFile(inputFile,createLog,annoCollection,archiveAnnoCollObj,annoType,assemblyType);
         createLog.debug("Check the value returned from the promise of parseFile");
         if ( ( val == "Success" ) || ( val == "Duplicate" ) ) {
             createLog.debug("Hey !! exit the process ");
@@ -100,7 +119,7 @@ var client;
 
 })();
 
-async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
+async function parseFile(file,createLog,annoCollection,archiveAnnoCollObj,annoType,assemblyType) {
     var reFile = /\.gz/g;
     var rd;
     if (file.match(reFile)) {
@@ -123,6 +142,9 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
     var chrMap = chrData['chromosomes'];
 
     var bulkOps = [];
+    var verBulkOps = [];
+
+    
     rd.on('line', function (line) {
         var document = {};
         var updateDoc = {};
@@ -132,6 +154,11 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
         var filter = {};
         var setFilter = {};
         var updateFilter = {};
+
+        // ver coll filter 
+        var filterV = {};
+        var setFilterV = {};
+        var updateFilterV = {};
 
         var id = parsedJson['_id'];
         var arr = id.split('-');
@@ -174,18 +201,20 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
             // reanno request : don't update maxent annotations directly
             // reanno req : store maxent annotations in reannotation field
             // import request : update maxent annotations
-            if ((annoType != "reannotate" ) || (! parsedJson['maxent'])) {
+            // ------- 26/08/24 commented - not relevant for archival process ---- 
+            //if ((annoType != "reannotate" ) || (! parsedJson['maxent'])) {
                 setFilter['annotation'] = parsedJson['annotation'];
-            } 
+            //} 
 	        
         }
 
         // including additional field for the re-annotated gene annotations.
-        if ( annoType == "reannotate" && parsedJson['annotation']) {
+        // ------ 26/08/24 commented - not relevant for archival process
+        /*if ( annoType == "reannotate" && parsedJson['annotation']) {
             //console.log("reannotate option provided");
             //console.log("including reannotation field in filter");
             setFilter['reannotation'] = parsedJson['annotation'];
-        }
+        }*/
 
         if ( parsedJson['regulatory_feature_consequences'] ) {
             //console.log("reg feature field present")
@@ -199,7 +228,7 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
  
         if ( parsedJson['gnomAD'] ) {
             // v4.0 gnomAD - available only for GRCh38
-            if ( assemblyType == "GRCh38" && process.env.CURR_ANNO_VER == 'v3' ) {
+            if ( assemblyType == "GRCh38" ) {
                 var gnomADVal = ['AC','AC_XX','AC_XY','AN','AN_XX','AN_XY','AF','AF_XX','AF_XY','AC_asj','AN_asj','AF_asj','AC_asj_XX','AC_asj_XY','AN_asj_XX','AN_asj_XY','AF_asj_XX','AF_asj_XY','AC_afr','AN_afr','AF_afr','AC_afr_XX','AC_afr_XY','AN_afr_XX','AN_afr_XY','AF_afr_XX','AF_afr_XY','AC_mid','AN_mid','AF_mid','AC_mid_XX','AC_mid_XY','AN_mid_XX','AN_mid_XY','AF_mid_XX','AF_mid_XY','AC_nfe','AN_nfe','AF_nfe','AC_nfe_XX','AC_nfe_XY','AN_nfe_XX','AN_nfe_XY','AF_nfe_XX','AF_nfe_XY','nhomalt','nhomalt_XX', 'nhomalt_XY', 'nhomalt_asj', 'nhomalt_afr','nhomalt_mid','nhomalt_nfe','nhomalt_asj_XX','nhomalt_asj_XY', 'nhomalt_afr','nhomalt_afr_XX','nhomalt_afr_XY','nhomalt_mid','nhomalt_mid_XX','nhomalt_mid_XY','nhomalt_nfe','nhomalt_nfe_XX','nhomalt_nfe_XY','grpmax','nhomalt_grpmax','AC_grpmax','AN_grpmax','AF_grpmax','AC_raw','AN_raw','AF_raw','nhomalt_raw','faf95','faf99'];
 
                 const result = {};
@@ -214,14 +243,11 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
 
                 //console.log(result);
                 setFilter['gnomAD'] = result;
-
-                //gnomADVal[]
             } else {
                 // GRCh37 - old version of gnomAD
                 setFilter['gnomAD'] = parsedJson['gnomAD'];
             }
-
-            //setFilter['gnomAD'] = parsedJson['gnomAD'];
+            
         }
 
         if ( parsedJson['CADD_PhredScore'] ) {
@@ -230,14 +256,16 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
         }
 
         var annoCriteria = 1;
+        // versioned annotations are turned from 1 to 0
+        var verAnnoCriteria = 0;
         // transcript maxent process required only for reannotation request
         // not needed for novel variants.
         if ( parsedJson['maxent'] ) {
             setFilter['maxent'] = parsedJson['maxent'];
-            if ( annoType == "reannotate" ) {
+            /*if ( annoType == "reannotate" ) {
                 annoCriteria = 2;
                 // including another criteria to copy transcripts with maxent('reannotate') to 'annotation'  
-            }
+            }*/
         }
 
         if ( parsedJson['encode']) {
@@ -245,15 +273,28 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
         }
         
         //setFilter['annotated'] = 1;
-        setFilter['annotated'] = annoCriteria
+        setFilter['annotated'] = annoCriteria;
         filter['filter'] = {'_id' : id};
         filter['update'] = {$set : setFilter};
+
+        // only the annotated field is updated for annotation version collections. field value updated from 1 to 0.
+        setFilterV['annotated'] = verAnnoCriteria;
+        filterV['filter'] = {'_id' : id};
+        filterV['update'] = {$set : setFilterV};
 
         updateFilter['updateOne'] = filter;
         // by default upsert is false. Setting it to true below
         updateFilter['updateOne']['upsert'] = 1;
+
+        // versioning update filter
+        // upsert is not set for versioning collection. added 9/9/2024
+        updateFilterV['updateOne'] = filterV;
+        updateFilterV['updateOne']['upsert'] = 1;
+        
         
         bulkOps.push(updateFilter);
+        verBulkOps.push(updateFilterV);
+
         if ( bulkOps.length  === 1000 ) {
             createLog.debug("Execute the bulk update ");
             //console.dir(bulkOps,{"depth":null});
@@ -266,16 +307,32 @@ async function parseFile(assemblyType,file,createLog,annoCollection,annoType) {
             createLog.debug("Initializing bulkOps to 0");
             bulkOps = [];
         }
+
+        if ( verBulkOps.length  === 1000 ) {
+            createLog.debug("Execute the bulk update ");
+            //console.dir(bulkOps,{"depth":null});
+            archiveAnnoCollObj.bulkWrite(verBulkOps, { 'ordered': false }).then(function (res) {
+                createLog.debug(res.insertedCount, res.modifiedCount, res.deletedCount);
+            }).catch((err1) => {
+                createLog.debug("Error executing the bulk operations");
+                createLog.debug(err1);
+            });
+            createLog.debug("Initializing bulkOps to 0");
+            verBulkOps = [];
+        }
+
     });
 
     return new Promise( resolve => {
         rd.on('close', async () => {
-            if ( bulkOps.length > 0 ) {
+            if ( bulkOps.length > 0 || verBulkOps.length > 0 ) {
                 try {
                     var res1 = await annoCollection.bulkWrite(bulkOps,{'ordered':false});
+                    var res1 = await archiveAnnoCollObj.bulkWrite(verBulkOps,{'ordered':false});
                     resolve("Success");
                 } catch(err1) {
                     // duplicate key issue when the key is present in the existing mongo collection
+                    //var res1 = await verannoCollection.bulkWrite(verBulkOps,{'ordered':false});
                     resolve("Duplicate");
                 }
             } else {

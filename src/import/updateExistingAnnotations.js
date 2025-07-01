@@ -142,7 +142,24 @@ async function updateAnnotations(db,sid,createLog,assemblyType) {
                 //console.log(doc);
                 //gnomadObj['AF_all'] = gnomad['AF'];
                 //gnomadObj['AN_all'] = gnomad['AN'];
-                gnomadObj = annotations['gnomAD'];
+                if ( assemblyType == "GRCh38" && process.env.CURR_ANNO_VER == 'v3' ) {
+                    var gnomADVal = ['AC','AN','AF','AC_asj','AN_asj','AF_asj','AC_afr','AN_afr','AF_afr','AC_mid','AN_mid','AF_mid','AC_nfe','AN_nfe','AF_nfe','nhomalt','nhomalt_asj', 'nhomalt_afr','nhomalt_mid','nhomalt_nfe','grpmax','AC_grpmax','AN_grpmax','AF_grpmax','AC_raw','AN_raw','AF_raw','nhomalt_raw'];
+
+                    const result = {};
+
+                    // Iterate over the keysToCheck array
+                    gnomADVal.forEach(key => {
+                        if (annotations['gnomAD'].hasOwnProperty(key) && annotations['gnomAD'][key] !== undefined) {
+                            // If the key exists and has a defined value, add it to the result object
+                            result[key] = annotations['gnomAD'][key];
+                        }
+                    });
+                    gnomadObj = result;
+
+                } else {
+                    gnomadObj = annotations['gnomAD'];
+                }
+                
             }
             setFilter['gnomAD'] = gnomadObj;
             //console.dir(gnomadObj,{"depth":null});

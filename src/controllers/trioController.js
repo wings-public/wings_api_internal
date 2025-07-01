@@ -69,7 +69,7 @@ var familyFormat = require('../config/familyConf.json');
         //await familyColl.updateOne({'_id':localID,'TrioStatus':{$ne:'disabled'}},{$set : {'TrioStatus' : 'ongoing', 'TrioErrMsg' : ""}});
         var result = await scanTrioSample(trioReq,trioColl,queryCollObj,trioCont);
         var stop_time = new Date();
-        console.log("Trio Controller stop time is "+stop_time);
+        //console.log("Trio Controller stop time is "+stop_time);
         trioCont.debug("Result Done. Now Await timeout");
         // commenting debug timeout
         //await new Promise(resolve => setTimeout(resolve, 200000));
@@ -124,7 +124,7 @@ async function scanTrioSample(reqJson,trioColl,queryCollObj,trioCont) {
         var sampleCodes = familyFormat['trio']['sample_codes'];
         var sampleCodeKeys = Object.keys(sampleCodes);
         // trioCodeHash is populated with the trio sample counts
-        console.log("Time taken for Sample Count Start *********"+new Date());
+        //console.log("Time taken for Sample Count Start *********"+new Date());
         for (let i = 0; i < sampleCodeKeys.length ; i++ ) {
             var relation1 = sampleCodeKeys[i];
             trioCont.debug("Relation is "+relation1);
@@ -140,7 +140,7 @@ async function scanTrioSample(reqJson,trioColl,queryCollObj,trioCont) {
             trioCodeHash[trioCode] = sampCount;
         }
 
-        console.log("Time taken for Sample Count Stop *********"+new Date());
+        //console.log("Time taken for Sample Count Stop *********"+new Date());
         trioCont.debug(trioCodeHash);
      
         //var order = ['Proband','Father','Mother'];

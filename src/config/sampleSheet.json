@@ -5,7 +5,7 @@
                      "piName" : {"csv_field" : "PIName","data_type" : "char"},
                      "desc" : {"csv_field": "Description", "data_type" : "freetext"},
                      "fileLoc" : {"csv_field" : "FileLocation","data_type" : "location"},
-                     "fileType" : {"csv_field" : "FileType","allowed_values" : ["VCF","VCF INDEX","gVCF","gVCF INDEX","BAM","BAM INDEX","CRAM","CRAM INDEX","FASTQ","FASTQ F","FASTQ R"] },
+                     "fileType" : {"csv_field" : "FileType","allowed_values" : ["VCF","VCF INDEX","gVCF","gVCF INDEX","BAM","BAM INDEX","CRAM","CRAM INDEX","FASTQ","FASTQ F","FASTQ R","SV_VCF"] },
                      "sLocalID" : {"csv_field": "SampleLocalID", "data_type" : "varchar"},
                      "indLocalID" : {"csv_field": "IndLocalID", "data_type" : "varchar"},
                      "assemblyType" : {"csv_field" : "AssemblyType" , "allowed_values" : ["hg19","hg38","GRCh37","GRCh38"]},

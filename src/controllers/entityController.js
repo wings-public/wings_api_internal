@@ -1,5 +1,6 @@
 const MongoClient = require('mongodb').MongoClient;
 const fs = require('fs');
+const fs_prom = require('fs').promises;
 var test = require('assert');
 var bcrypt = require('bcrypt');
 const Async = require('async');
@@ -7,7 +8,7 @@ const configData = require('../config/config.js');
 var path = require('path');
 const { app:{instance,logLoc} } = configData;
 const {logger,loggerEnv} = require('../controllers/loggerMod');
-const { db : {host,port,dbName,apiUserColl,apiUser,familyCollection,individualCollection,variantAnnoCollection1,variantAnnoCollection2,resultCollection, revokedDataCollection,importStatsCollection,sampleSheetCollection,phenotypeColl,phenotypeHistColl,sampleAssemblyCollection, genePanelColl,fileMetaCollection,hostMetaCollection,indSampCollection,trioCollection,importCollection1,importCollection2,annoHistColl} , app:{trioQCnt}} = configData;
+const { db : {host,port,dbName,apiUserColl,apiUser,familyCollection,populationSVCollection, resultSV,individualCollection,variantAnnoCollection1,variantAnnoCollection2,resultCollection, revokedDataCollection,importStatsCollection,sampleSheetCollection,phenotypeColl,phenotypeHistColl,sampleAssemblyCollection, genePanelColl,fileMetaCollection,hostMetaCollection,indSampCollection,trioCollection,importCollection1,importCollection2,importCollection3,annoHistColl,famAnalysisColl,annoMetaCollection} , app:{trioQCnt}} = configData;
 
 const reannoQueueScraperAnno = require('../routes/queueScrapper').reannoQueueScraperAnno;
 
@@ -26,7 +27,10 @@ var logFile = `entity-control-logger-${pid}-${uDateId}.log`;
 //var logFile = loggerEnv(instance,logFile1);
 var entityLog = logger('entity',logFile);
 
+var archiveLog = logger('import',`import-annoarchive-logger-${pid}-${uDateId}.log`);
+
 const {default: PQueue} = require('p-queue');
+const { exit } = require('process');
 
 // create a new queue, and pass how many you want to scrape at once
 
@@ -46,6 +50,7 @@ const initialize = async () => {
     } catch(err) {
         console.log(`Collection ${apiUserColl} already exists`);
     }
+
     try {
         var retVal = await checkApiUser(apiUser);
         console.log("Logging the return value "+retVal);
@@ -59,29 +64,71 @@ const initialize = async () => {
         console.log(err);
     }
 
+    // Annotation Meta collection - annotation version and meta data
+    try {
+        var res1 = await checkCollectionExists(annoMetaCollection);
+        var res2 = await createCollection(annoMetaCollection);
+        var basePath = path.parse(__dirname).dir;
+        var conf = path.join(basePath,'models','annoMeta.json');
+
+        const data = await fs_prom.readFile(conf, 'utf8');
+        const config = JSON.parse(data);
+        
+        var client = getConnection();
+        const db = client.db(dbName);
+        const collection = db.collection(annoMetaCollection);
+
+        const insertResult = await collection.insertMany(config.data);
+        console.log(`${insertResult.insertedCount} documents were inserted into '${config.collectionName}'.`);
+    } catch(err) {
+        console.log(err);
+        console.log(`Collection ${annoMetaCollection} already exists`);
+    }
+
+
     // Check if HIST_ANNO_VER env is defined and rename the existing annotation collections
     // These will be archived anno collections.
     try {
         var annoVer = "";
+        var currAnnoVer = "";
+        
+
         if ( process.env.HIST_ANNO_VER ) {
+            console.log("History annotation archiving enabled");
+            archiveLog.debug("History annotation archiving enabled");
             annoVer = process.env.HIST_ANNO_VER;
+            currAnnoVer = process.env.CURR_ANNO_VER;
             var verAnnoColl1 = variantAnnoCollection1+annoVer;
             var verAnnoColl2 = variantAnnoCollection2+annoVer;
             //console.log(`verAnnoColl1:${verAnnoColl1}`);
             //console.log(`verAnnoColl2:${verAnnoColl2}`);
-            var stat1 = await checkCollectionExists(verAnnoColl1);
-            var stat2 = await checkCollectionExists(verAnnoColl2);
-
             var utcTime = new Date().toUTCString();
-            var hist_obj1 = {"version" : process.env.HIST_ANNO_VER, "archived_coll" : verAnnoColl1, "archive_date": utcTime,"assembly_type": "hg19"};
-            var hist_obj2 = {"version" : process.env.HIST_ANNO_VER, "archived_coll" : verAnnoColl2, "archive_date":utcTime,"assembly_type": "hg38"};
             // check if the above collections do not exist before executing rename
-            // hg19 annotation collection
-            await renameColl(variantAnnoCollection1,verAnnoColl1,annoHistColl,hist_obj1);
-            // hg38 annotation collection
-            await renameColl(variantAnnoCollection2,verAnnoColl2,annoHistColl,hist_obj2);
+            try {
+                var stat1 = await checkCollectionExists(verAnnoColl1);
+                var hist_obj1 = {"version" : annoVer, "archived_coll" : verAnnoColl1, "archive_date": utcTime,"assembly_type": "hg19","status":"created","curr_version":currAnnoVer};
+                // hg19 annotation collection
+                await renameColl(variantAnnoCollection1,verAnnoColl1,annoHistColl,hist_obj1);
+                archiveLog.debug(`${verAnnoColl1} created`);
+            } catch(err) {
+                //console.log(`${verAnnoColl1} collection already exists`);
+                archiveLog.debug(`${verAnnoColl1} collection already exists`);
+            }
 
-
+            try {
+                var stat2 = await checkCollectionExists(verAnnoColl2);
+                var hist_obj2 = {"version" : annoVer, "archived_coll" : verAnnoColl2, "archive_date":utcTime,"assembly_type": "hg38","status":"created","curr_version":currAnnoVer};
+                // hg38 annotation collection
+                await renameColl(variantAnnoCollection2,verAnnoColl2,annoHistColl,hist_obj2);
+                archiveLog.debug(`${verAnnoColl2} created`);
+            } catch(err) {
+                console.log(`${verAnnoColl2} collection already exists`);
+                archiveLog.debug(`${verAnnoColl2} collection already exists`);
+            }    
+            
+            
+            
+            
             // *************************************************************
             // ************ Reannotation Queue process *********************
 
@@ -92,12 +139,16 @@ const initialize = async () => {
 
             const importColl2 = db.collection(importCollection2);
             var dList2 = await importColl2.distinct('fileID');
-            // merge both the lists -- samples to be reannotated
-            // GRCh37 + GRCh38 
-            //dList = dList.concat(dList2);
+
+            const importColl3 = db.collection(importCollection3);
+            var dList3 = await importColl3.distinct('fileID');
+
+
             // checked file list 
-            var reannoFList1 = await checkFileState(db,dList,annoVer);
-            var reannoFList2 = await checkFileState(db,dList2,annoVer);
+            // hg19 file list
+            var reannoFList1 = await checkFileState(db,dList,annoVer,archiveLog);
+            // hg38 file list
+            var reannoFList2 = await checkFileState(db,dList2,annoVer,archiveLog);
 
             // Queue Monitor 
             reannoqueue.on('active', () => {
@@ -115,9 +166,14 @@ const initialize = async () => {
             //////////////////////////////////////
 
             // hg19 
-            for (const fileId of reannoFList1) {
-                    console.log(`Queued fileID ${fileId}`);
-                    console.log("------------------------------------");
+            try {
+                // function to throw error if there is an active process
+                await checkArchiveProcess('hg19',annoHistColl,currAnnoVer);
+                await updateAnnoArchive('hg19',annoHistColl,currAnnoVer);
+                
+                for (const fileId of reannoFList1) {
+                    archiveLog.debug(`hg19 Queued fileID ${fileId}`);
+                    archiveLog.debug("------------------------------------");
                     
         
                     var qcount = 0;
@@ -125,35 +181,50 @@ const initialize = async () => {
                     // Adding queue  -- Start
                     reannoqueue.add( async () => { 
                         try {
-                            console.log(`Queued Request - Import Task- ${fileId}`);
-                            console.log("Calling importQueueScraperAnno");
+                            archiveLog.debug(`Queued Request - Import Task- ${fileId}`);
+                            archiveLog.debug("Calling importQueueScraperAnno");
                             var fIDStr = fileId.toString();
-                            console.log("START file ID **********************"+fIDStr);
+                            archiveLog.debug("hg19 START file ID **********************"+fIDStr);
                             var uDateId = "";
-                            uDateId = await getuDateId(db,fIDStr);
-                            console.log(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
-                            console.log("uDateId **********************"+uDateId);
+                            uDateId = await getuDateId(db,fIDStr,archiveLog);
+                            archiveLog.debug(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
+                            archiveLog.debug("uDateId **********************"+uDateId);
         
                             // annoType = Def ; annoField = Def
-                            console.log(`uDateId:${uDateId} fileId:${fileId}`)
-                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh37","Def","Def",0);
+                            archiveLog.debug(`uDateId:${uDateId} fileId:${fileId}`)
+                            //await reannoQueueScraperAnno(uDateId,fileId,"GRCh37","Def","Def",0);
+                            //await reannoQueueScraperAnno(uDateId,fileId,"GRCh37","VEP","Def",1);
+                            // New VEP Annotations. CADD - Old Version
+                            archiveLog.debug("Step1 - hg19 Call reannoQueueScraperAnno VEP Def");
+                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh37","VEP","Def",0,archiveLog);
                             
-                            console.log(`Done : Annotate Task - ${fileId}`); 
+                            archiveLog.debug(`Done : Annotate Task - ${fileId}`); 
                         } catch(err) {
                              //var id  = {'_id' : uDateId,'status_id':{$ne:9}};
                              //var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
-                             console.log(err);
+                             archiveLog.debug(err);
                         }
                     } );
         
                     // End queue
                 } // for loop
-                console.log("hg19 completed");
+                archiveLog.debug("hg19 for loop completed");
 
-                // hg38 - redundant process
+            } catch(err) {
+                archiveLog.debug("Alert! Active hg19 archive process. Dont trigger a new process");
+                console.log("Alert! Active hg19 archive process. Dont trigger a new process")
+            }
+
+            // hg38 - redundant process
+            try {
+                // function to throw error if there is an active process
+                await checkArchiveProcess('hg38',annoHistColl,currAnnoVer);
+                await updateAnnoArchive('hg38',annoHistColl,currAnnoVer);
+                
+
                 for (const fileId of reannoFList2) {
-                    console.log(`Starting Annotation for fileID ${fileId}`);
-                    console.log("------------------------------------");
+                    archiveLog.debug(`Starting Annotation for fileID ${fileId}`);
+                    archiveLog.debug("------------------------------------");
                     
         
                     var qcount = 0;
@@ -161,30 +232,36 @@ const initialize = async () => {
                     // Adding queue  -- Start
                     reannoqueue.add( async () => { 
                         try {
-                            console.log(`Queued Request - Import Task- ${fileId}`);
-                            console.log("Calling importQueueScraperAnno");
+                            archiveLog.debug(`hg38 Queued Request - Import Task- ${fileId}`);
+                            archiveLog.debug("Calling importQueueScraperAnno");
                             var fIDStr = fileId.toString();
-                            console.log("START file ID **********************"+fIDStr);
+                            archiveLog.debug("hg38 START file ID **********************"+fIDStr);
                             var uDateId = "";
-                            uDateId = await getuDateId(db,fIDStr);
-                            console.log(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
-                            console.log("uDateId **********************"+uDateId);
+                            uDateId = await getuDateId(db,fIDStr,archiveLog);
+                            archiveLog.debug(`uDateId:${uDateId} fileId:${fileId} fIDStr:${fIDStr}`);
+                            archiveLog.debug("uDateId **********************"+uDateId);
         
-                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh38","Def","Def",0);
+                            //await reannoQueueScraperAnno(uDateId,fileId,"GRCh38","Def","Def",0);
+                            //await reannoQueueScraperAnno(uDateId,fileId,"GRCh38","VEP","Def",1);
+                            // New VEP Annotations. CADD - Old Version
+                            archiveLog.debug("Step1 - hg38 Call reannoQueueScraperAnno VEP Def");
+                            await reannoQueueScraperAnno(uDateId,fileId,"GRCh38","VEP","Def",0,archiveLog);
                             
-                            console.log(`Done : Annotate Task - ${fileId}`); 
+                            archiveLog.debug(`Done : Annotate Task - ${fileId}`); 
                         } catch(err) {
-                             //var id  = {'_id' : uDateId,'status_id':{$ne:9}};
-                             //var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
-                             console.log(err);
+                                //var id  = {'_id' : uDateId,'status_id':{$ne:9}};
+                                //var set = {$set : {'status_description' : 'Error', 'status_id':9 , 'error_info' : "Error occurred during import process",'finish_time': new Date()}, $push : {'status_log': {status:"Error",log_time: new Date()}} };
+                                archiveLog.debug(err);
                         }
                     } );
         
                     // End queue
                 } // for loop
 
-                console.log("hg38 completed");
-
+            } catch(err) {
+                archiveLog.debug("Alert! Active hg38 archive process. Don't trigger a new process");
+                console.log("Alert! Active hg38 archive process. Don't trigger a new process")
+            }       
 
             // check if there are any samples in importStats without anno_ver. 
             // If true : then set the anno_ver to HIST_ANNO_VER
@@ -242,6 +319,27 @@ const initialize = async () => {
             await createColIndex(client.db(dbName),importCollection2,idx1);
         } catch(err) {
             console.log("Index already exists in importCollection2");
+        }
+        
+        
+    }
+
+    
+
+    // SV Changes
+    try {
+        var res1 = await checkCollectionExists(importCollection3);
+        var res2 = await createCollection(importCollection3);
+    } catch(err) {
+        console.log(`Collection ${importCollection3} already exists`);
+        //check this
+        var idx1 = {"gene_annotations.gene_id" : 1};
+        
+        try {
+            var client = getConnection();
+            await createColIndex(client.db(dbName),importCollection3,idx1);
+        } catch(err) {
+            console.log("Index already exists in importCollection3");
         }
         
         
@@ -316,6 +414,13 @@ const initialize = async () => {
     }
 
     try {
+        var res17 = await checkCollectionExists(populationSVCollection);
+        var res18 = await createCollection(populationSVCollection);
+    } catch(err10) {
+        console.log(`Collection ${populationSVCollection} already exists`);
+    }
+
+    try {
         var res1 = await checkCollectionExists(individualCollection);
         var res2 = await createCollection(individualCollection);
         var res3 = await checkCollectionExists(familyCollection);
@@ -329,6 +434,12 @@ const initialize = async () => {
 
 const initializeLogLoc = async() => {
     var logDir = path.join(logLoc,'import','samples','tmp');
+    fs.mkdirSync(logDir,{recursive:true});
+    return "created";
+}
+
+const initializeLogLocSVAnnot = async() => {
+    var logDir = path.join(logLoc,'svAnnot');
     fs.mkdirSync(logDir,{recursive:true});
     return "created";
 }
@@ -540,7 +651,7 @@ const getFamily = async(id) => {
 
         while ( await aggData.hasNext() ) {
             const doc = await aggData.next();
-            console.log(doc);
+            //console.log(doc);
             //var { relatives : { ID,memberType, FamilySide }, relative_data: {Affected } } = doc;
             var newDoc = { '_id' : doc.family_data._id,
                            'Desc' : doc.family_data.Desc,
@@ -553,8 +664,8 @@ const getFamily = async(id) => {
                            'IndividualLName' : doc.IndividualLName,
                            'LocalID' : doc.LocalID
                         };
-                        console.log("logging new doc here");
-                        console.log(newDoc);
+                        //console.log("logging new doc here");
+                        //console.log(newDoc);
             obj.push(newDoc);
         }
         if ( ! obj.length ) {
@@ -1122,9 +1233,13 @@ const updateFamilySid = async(reqBody) => {
                                 // including FileType to the trioLocalID and _id
                                 var trioGroupCursor = await indSColl.aggregate([{$match:{individualID:{$in:famIndArr},trio:1,'SeqTypeName':seqType,'panelType':panelType,'state':{$ne:'unassigned'}}},{$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","FileType":"$FileType","panelType":"$panelType",trioLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-","$FileType","-",concatStr,"$panelType"]} },total:{"$sum":1},trio:{$push:{fileID:"$fileID",individualID:"$individualID"}}}},{$project:{"_id":1,"trio":1,"trioLocalID":1}}]);
 
-                                var insertArr = await scanTrioCursor(trioGroupCursor,familyId);         
+                                var insertArr = await scanTrioCursor(trioGroupCursor,familyId);       
+                                entityLog.debug("Following entries are added to trio collection --- ")  
+                                entityLog.debug(insertArr,{"depth":null});
 
-                                var trColl = db.collection(trioCollection);
+                                // Commented - Start - 04/09/2024 - Handle multiple trio trigger issues.
+
+                                /*var trColl = db.collection(trioCollection);
                                 // check if there are any entries for family id and then insert.
                                 await trColl.insertMany(insertArr);
 
@@ -1145,7 +1260,8 @@ const updateFamilySid = async(reqBody) => {
                                     var doc = await localCursor.next();
                                     var localID = doc['TrioLocalID'];
                                     const trioChildProc = spawn.fork(trioLaunchScript,['--family_id',familyId, '--trio_local_id', localID],{'env':process.env});
-                                }
+                                } */
+                               // Commented - End
 
                             }
                         }
@@ -1713,13 +1829,103 @@ const getTrioFamily = async(type,reqId) => {
         //console.log(familyIdArr);
         for ( var fidx in familyIdArr ) {
             var famID = familyIdArr[fidx];
-            var filter = {'familyID' : famID};
+            const filter = {
+                'familyID': famID
+                //'TrioLocalID': { $not: /SV_VCF/ }
+            };
             
             //console.log(filter);
             //console.log(famID);
             entityLog.debug("Filter we tried in getTrioFamily is ");
             entityLog.debug(filter);
             var trioCursor = await trioColl.find(filter);
+            var trioInfo = [];
+            var mainTrioHash = {};
+            while ( await trioCursor.hasNext() ) {
+                const doc = await trioCursor.next();
+                var docId = doc['TrioLocalID'];
+                entityLog.debug("Logging the document for the data retrieved for the Individual");
+                entityLog.debug(doc);
+                var familyData = {};
+                var familyInfo = doc.trio;
+                mainTrioHash['FamilyID'] = doc['familyID'];
+
+                familyData['TrioLocalID'] = docId;
+                familyData['TrioStatus'] = doc['TrioStatus'];
+
+                for ( var idx in familyInfo ) {
+                    var famHash = familyInfo[idx];
+                    //console.dir(famHash,{"depth":null});
+                    if ( famHash['relation'] == 'Proband' ) {
+                        entityLog.debug("Family hash node key is 2");
+                        mainTrioHash['ProbandID'] = famHash['individualID'];
+                        familyData['ProbandFileID'] = famHash['fileID'];  
+                        var probandN = await getProbandName(famHash['individualID']);  
+                        mainTrioHash['ProbandFullName'] = probandN; 
+                    } else if ( famHash['relation'] == 'Father' ) {
+                        mainTrioHash['FatherID'] = famHash['individualID'];
+                        familyData['FatherFileID'] = famHash['fileID'];
+                    } else if ( famHash['relation'] == 'Mother' ) {
+                        mainTrioHash['MotherID'] = famHash['individualID'];
+                        familyData['MotherFileID'] = famHash['fileID'];
+                    }
+                }
+                trioInfo.push(familyData);
+            }
+            if ( mainTrioHash['FamilyID']) {
+                mainTrioHash['Trios'] = trioInfo;
+                resultArr.push(mainTrioHash);
+            }
+            
+        }
+        return resultArr;
+    } catch(err) {
+        throw err;
+    }
+}
+
+// adapted SV Trio function
+const getSVTrioFamily = async(type,reqId) => {
+    try {
+        var client = getConnection();
+        const db = client.db(dbName);
+        const trioColl = db.collection(trioCollection);
+        const familyColl = db.collection(familyCollection);
+        
+        var familyId = "";
+        reqId = parseInt(reqId);
+        var filter = {};
+        var familyIdArr = [];
+        if ( type == "proband") {
+            familyId = await checkProband(reqId);
+            filter['familyID'] = familyId;
+            entityLog.debug("Request ID is "+reqId);
+            familyIdArr.push(familyId);
+        } else if ( type == "family" ) {
+            //console.log("Currently present here ");
+            filter['familyID'] = reqId;
+            familyIdArr.push(reqId);
+        } else if  (type == "piid")  {
+            //console.log("*****************************");
+            familyIdArr = await getFamilyPIID(reqId);
+            //filter['familyID'] = {$in:familyIdArr};
+        }
+        console.log(familyIdArr);
+        //familyIdArr = familyIdArr.filter(id => id.includes("SV_VCF"));
+        var resultArr = [];
+        //console.log("Logging family id array");
+        //console.log(familyIdArr);
+        for ( var fidx in familyIdArr ) {
+            var famID = familyIdArr[fidx];
+            var filter = {'familyID': famID, 'TrioLocalID': /SV_VCF/};
+
+            
+            //console.log(filter);
+            //console.log(famID);
+            entityLog.debug("Filter we tried in getTrioFamily is ");
+            entityLog.debug(filter);
+            var trioCursor = await trioColl.find(filter);
+            
             var trioInfo = [];
             var mainTrioHash = {};
             while ( await trioCursor.hasNext() ) {
@@ -2353,41 +2559,41 @@ const renameColl = async (existColl,newColl,annoHistColl,hist_obj) => {
 };
 
 
-const checkFileState = async(db,distinctFID,annoVer) => {
+const checkFileState = async(db,distinctFID,annoVer,archiveLog) => {
     try {
         var data = [];
         for (const checkFileID of distinctFID) {
             var statsColl = db.collection(importStatsCollection);
             // anno_ver will be "" for the existing samples.
             var query = {"fileID":checkFileID.toString(),"status_description" :"Import Request Completed","anno_ver":{$in:[annoVer,""]}};
-            console.log("Logging the query statement below ----- ");
-            console.log(query);
             var idExist = await statsColl.findOne(query);
-            console.log(idExist);
             if ( idExist != null ) {
                 data.push(checkFileID);
             }
         }
+        archiveLog.debug(`List of IDs with Import Status Completed and annoversion ${annoVer}`);
+        archiveLog.debug(data,{"depth":null});
         return data;
     } catch(err) {
         throw err;
     }
 }
-async function getuDateId (db,fID) {
+
+async function getuDateId (db,fID,archiveLog) {
     try {
-        console.log("******************************");
-        console.log("getuDateId -------------------");
-        console.log(`Arguments ${fID}`);
+        archiveLog.debug("******************************");
+        archiveLog.debug("getuDateId -------------------");
+        archiveLog.debug(`Arguments ${fID}`);
         var statsColl = db.collection(importStatsCollection);
         //console.log(fIDStr);
         var query = {'fileID':fID,"status_description" : "Import Request Completed"};
-        console.log("Logging the query statement ");
-        console.log(query);
+        archiveLog.debug("Logging the query statement ");
+        archiveLog.debug(query);
         var uDateId = await statsColl.findOne(query,{'projection':{_id:1}});
-        console.log(`**************** ${uDateId}`);
+        archiveLog.debug(`**************** ${uDateId}`);
         if ( uDateId != null ) {
             //createLog.debug(`uDateId:${uDateId}`);
-            console.log(`uDateId:${uDateId}`);
+            archiveLog.debug(`uDateId:${uDateId}`);
             uDateId = uDateId._id;
         }
         return uDateId;
@@ -2395,6 +2601,566 @@ async function getuDateId (db,fID) {
         throw err;
     }
 }
+
+// Analysis options based on the sequence type and assembly type.
+async function getFamAnalyseTypes(family_members) {
+    try {
+            
+            var client = getConnection();
+            const db = client.db(dbName);
+
+            const sortfamMem = family_members.sort();
+
+            console.log("Sorted family members ")
+            console.log(sortfamMem);
+            
+            const indSColl = db.collection(indSampCollection);
+            const famAColl = db.collection(famAnalysisColl);
+
+            const result = await db.collection(famAnalysisColl).find({'input_list': sortfamMem});
+            const resArr = await db.collection(famAnalysisColl).find({'input_list': sortfamMem}).toArray();
+            //console.log("Check the length of result array");
+            //console.log(resArr.length);
+
+            var famList = [];
+
+            // another check needed for new collection. Test by deleting the existing collection(family analysis)
+            if ( resArr.length > 0 ) {
+
+                // process and return the stored result
+                while ( await result.hasNext() ) {
+                    const doc = await result.next();
+                    famList.push(doc);
+                }
+                
+            } else {
+                // store the data
+                // get the current sequence counter
+                const seqRes = await db.collection(famAnalysisColl).findOneAndUpdate(
+                    { _id: 'seq_counter' },
+                    { $inc: { value: 1 } },
+                    { returnDocument: 'after', upsert: true }
+                );
+                console.log("Logging sequence counter ");
+                console.log(seqRes);
+                if ( ! seqRes.value ) {
+                    autoIncrementValue = 1;
+                } else {
+                    autoIncrementValue = seqRes.value.value;
+                }
+
+                // aggregate query to fetch the details for the family members.
+                var famCursor = await indSColl.aggregate([{$match:{individualID:{$in: family_members },'state':{$ne:'unassigned'}}}, {$group:{"_id":{"SeqTypeName":"$SeqTypeName","AssemblyType":"$AssemblyType","FileType":"$FileType","panelType":"$panelType", famLocalID : {$concat:["$SeqTypeName","-","$AssemblyType","-","$FileType","-","$panelType"]} , assemblyType: "$AssemblyType"},total:{"$sum":1},fam_opts:{$push:{fileID:"$fileID",individualID:"$individualID"}}}}]);
+            
+
+                while ( await famCursor.hasNext() ) {
+                    var newDoc = {};
+                    newDoc['input_list'] = sortfamMem;
+                    const doc = await famCursor.next();
+                    console.log(doc);
+                    
+                    var fam_ind = [];
+                    var analType = {}
+                    if ( doc._id ) {
+                        analType = doc._id;
+                        ++autoIncrementValue;
+    
+                        if ( doc._id['famLocalID']) {
+                            var famLocalID = doc._id['famLocalID']  + autoIncrementValue;
+                            console.log(famLocalID);
+                            doc._id['famLocalID'] = famLocalID;
+                            newDoc._id = famLocalID;
+                            newDoc['details'] = doc._id;
+                        }
+                        
+                    }
+                    if ( doc['total']) {
+                        analType['available_files'] = doc['total'];
+                        analType['analysis'] = 'false';
+                        if ( doc['total'] == family_members.length ) {
+                            analType['analysis'] = 'true';
+                        }
+                        newDoc['total'] = doc['total'];
+                    }
+    
+                    if ( doc['fam_opts']) {
+                        for ( var idx in doc['fam_opts']) {
+                            var ind_id = doc['fam_opts'][idx]['individualID'];
+                            fam_ind.push(ind_id);
+                        }
+                        analType['family_analysis'] = fam_ind;
+                        newDoc['fam_opts'] = doc['fam_opts'];
+                        newDoc['fam_members'] = fam_ind;
+                    }
+
+                    if ( doc['assemblyType'] ) {
+                        newDoc['assemblyType'] = doc['assemblyType'];
+                    }
+    
+                    if ( doc._id['famLocalID']) {
+                        famList.push(newDoc);
+                    
+                        await db.collection(famAnalysisColl).insertOne(newDoc);
+                    }
+                    
+                }// while loop
+
+            }
+            
+            return famList;
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Function to trigger the family analysis pre-compute script
+async function familyAnalysisPrecomp(reqBody) {
+    try {
+        var basePath = path.parse(__dirname).dir;
+        var famPrecompScript = path.join(basePath,'controllers','famAnalysisCont.js'); 
+
+        // Prepare Request json
+        var reqJson = {};
+        reqJson['family_local_id'] = reqBody['family_local_id'];
+        reqJson['affected_mem'] = reqBody['affected_mem'];
+        reqJson['assembly_type'] = reqBody['assembly_type'];
+
+        if ( reqBody['unaffected_mem']) {
+            reqJson['unaffected_mem'] = reqBody['unaffected_mem'];
+        }
+        if ( reqBody['genotype']) {
+            reqJson['genotype'] = reqBody['genotype'];
+        }
+        if ( reqBody['min_affected']) { 
+            reqJson['min_affected'] = reqBody['min_affected'];
+        }
+
+        var reqJsonS = JSON.stringify(reqJson);
+
+        console.log("Logging the family precompute script ------------------");
+        console.log(famPrecompScript);
+        const famChildProc = spawn.fork(famPrecompScript,['--request_json',reqJsonS],{'env':process.env});
+
+        return "Success";
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Function to get the status of precomputation
+async function familyAnalysisPrecompStatus(famCode) {
+    try {
+        var client = getConnection();
+        const db = client.db(dbName);
+        var res = {'fam_code': famCode, 'status' : ''};
+        const db_res = await db.collection(famAnalysisColl).findOne({'_id': famCode});
+        if ( db_res ) {
+            res['status'] = db_res['Status'] || '';
+        }
+        return res;
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Check if there is an active archive process for the respective assembly
+const checkArchiveProcess = async (assembly,annoHistColl,curr_ver) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const collection = db.collection(annoHistColl);
+    try {
+        var query1 = {'assembly_type':assembly,'status':'active','curr_version':curr_ver};
+        console.log("checkArchiveProcess -- logging query")
+        console.log(query1);
+        var doc = await collection.findOne(query1);
+        if ( doc ) {
+            throw new Error("Active archive process detected");
+        } else {
+            return "success";
+        }
+    } catch(err1) {
+        console.log("Error checkArchiveProcess "+err1);
+        throw err1;
+    }
+};
+
+
+// Update the archive status from 'created' to 'active'
+const updateAnnoArchive = async (assembly,annoHistColl,curr_ver) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const collection = db.collection(annoHistColl);
+    console.log(`assembly:${assembly} annoHistColl:${annoHistColl} curr_ver:${curr_ver}`);
+    try {
+        var query = {'status':'created','curr_version':curr_ver,"assembly_type":assembly};
+        var setVal = {$set:{"status":"active"}};
+
+        console.log(query);
+        console.log(setVal);
+        var doc = await collection.updateOne(query,setVal);
+        console.log(doc);
+        console.log("Updated entry");
+        return "updated";
+    } catch(err1) {
+        console.log("Error updateAnnoArchive "+err1);
+        console.log("Update process error");
+        throw err1;
+    }
+};
+
+
+// SV - newly added function
+
+const createPopulation = async (jsonData) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const collection = db.collection(populationSVCollection);
+
+    if ( ! jsonData['_id'] || ! jsonData['Desc'] || ! jsonData['PIID'] ) {
+        throw "JSON Structure Error";
+    }
+
+    try {
+        //jsonData.individualsWithSamples = [];
+        var result = await collection.insertOne(jsonData);
+        test.equal(1,result.insertedCount);
+        return "Success";
+        //return await getSuccess;
+    } catch(e) {
+        throw e;
+    }
+}
+
+const updatePopulation = async (jsonData1) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const collection = db.collection(populationSVCollection);
+
+    if ( ! jsonData1['Population'] ) {
+        throw "JSON Structure Error";
+    }
+
+    var jsonData = jsonData1['Population'];
+    var bulkOps = [];
+    for ( var hashIdx in jsonData ) {
+        var indHash = jsonData[hashIdx]; // array index holding hash data
+        if ( ! indHash['PopulationID'] || ! indHash['Meta'] ) {
+            throw "JSON Structure Error";
+        }
+
+        var indId = indHash['PopulationID'];
+        var meta = indHash['Meta'];
+        var metaKeys = Object.keys(meta);
+        var updateFilter = {};
+        var filter = {};
+        var setFilter = {};
+        for ( var kIdx in metaKeys ) {
+            var keyName = metaKeys[kIdx];
+            var val = meta[keyName];
+            setFilter[keyName] = val;
+        }
+        filter['filter'] = { '_id' : indId };
+        filter['update'] = { $set : setFilter };
+        updateFilter['updateOne'] = filter;
+        bulkOps.push(updateFilter);
+    }
+    console.dir(bulkOps,{"depth":null});
+    try {
+        var res = await collection.bulkWrite(bulkOps);
+        return "Success";
+    } catch(e) {
+        throw e;
+    };
+};
+
+ const addIndividualsAndSamplesToPop = async (populationId, individualsAndSamples) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const populationCollection = db.collection(populationSVCollection);
+    const indSampColl = db.collection(indSampCollection);
+    var already_in_pop = [];
+    var incorect_indv_samp_sampFtype = [];
+    var added_indSamp = 0;
+    try {
+        // Assuming you have a population document with _id = populationId
+        var population = await populationCollection.findOne({ _id: populationId });
+        if(!population) {
+            throw new Error("Population not found");
+        }
+        // Check if population.individuals exists and is an array
+        if (Array.isArray(population.individualsWithSamples) && population.individualsWithSamples.length > 0) {
+            // Update the population document to add the new individuals and samples
+            for (const pair of individualsAndSamples) {
+                var individualID = pair.individualID;
+                var fileID = pair.fileID;
+    
+                // Check if the pair already exists in the population
+                var pairExists = population.individualsWithSamples.some(entry => 
+                    entry.individualID === individualID && entry.fileID === fileID
+                );
+    
+                if (!pairExists) {
+                    // Check if the pair exists in the indSampCollection
+                    var indSampEntry = await indSampColl.findOne({
+                        individualID: individualID,
+                        fileID: fileID,
+                        FileType: "SV_VCF"
+                    });
+    
+                    if (indSampEntry) {
+                        // Add the individual-sample pair to the population document
+                        added_indSamp++;
+                        population.individualsWithSamples.push(pair);
+                    } else {
+                        incorect_indv_samp_sampFtype.push(pair);
+                    }
+                } else {
+                    already_in_pop.push(pair);
+                }
+            }
+    
+            // Save the updated population document back to the collection
+            var result = await populationCollection.updateMany({ _id: populationId }, { $set: population });
+            //console.log(result);
+            return [already_in_pop, incorect_indv_samp_sampFtype];
+        } else {
+            // Handle the case where population.individuals is not an array or is empty
+            // For example, initialize it as an empty array and add the new individuals and samples
+            population.individualsWithSamples = [];
+            for (const pair of individualsAndSamples) {
+                var individualID = pair.individualID;
+                var fileID = pair.fileID;
+    
+                // Check if the pair exists in the indSampCollection
+                var indSampEntry = await indSampColl.findOne({
+                    individualID: individualID,
+                    fileID: fileID,
+                    FileType: "SV_VCF"
+                });
+    
+                if (indSampEntry) {
+                    // Add the individual-sample pair to the population document
+                    population.individualsWithSamples.push(pair);
+                } else {
+                    incorect_indv_samp_sampFtype.push(pair);
+                }
+            }
+    
+            // Save the updated population document back to the collection
+            var result = await populationCollection.updateMany({ _id: populationId }, { $set: population });
+    
+            return [already_in_pop, incorect_indv_samp_sampFtype];
+
+        }
+    } catch (err) {
+        throw err;
+    }
+    
+    
+}
+
+const removeIndividualsAndSamplesFromPop = async (populationId, individualsAndSamples) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const populationCollection = db.collection(populationSVCollection);
+
+    try {
+        // Assuming you have a population document with _id = populationId
+        var population = await populationCollection.findOne({ _id: populationId });
+        if(!population) {
+            throw new Error("Population not found");
+        }
+        // Check if population.individuals exists and is an array
+        if (Array.isArray(population.individualsWithSamples) && population.individualsWithSamples.length > 0) {
+            // Initialize result variables
+            var removedIndividualsAndSamples = [];
+            var notFoundIndividualsOrSamples = [];
+
+            // Loop through individualsAndSamples array
+            individualsAndSamples.forEach(pair => {
+                var individualID = pair.individualID;
+                var fileID = pair.fileID;
+
+                // Check if the pair exists in the population
+                var pairIndex = population.individualsWithSamples.findIndex(entry => 
+                    entry.individualID === individualID && entry.fileID === fileID
+                );
+
+                if (pairIndex !== -1) {
+                    // Remove the individual-sample pair from the population document
+                    var removedPair = population.individualsWithSamples.splice(pairIndex, 1)[0];
+                    removedIndividualsAndSamples.push(removedPair);
+                } else {
+                    // Pair not found in the population
+                    notFoundIndividualsOrSamples.push(pair);
+                }
+            });
+
+            // Save the updated population document back to the collection
+            await populationCollection.updateOne({ _id: populationId }, { $set: population });
+
+            // Return result
+            return [removedIndividualsAndSamples, notFoundIndividualsOrSamples];
+        } else {
+            // Handle the case where population.individualsWithSamples is not an array or is empty
+            // For example, you could throw an error or handle it according to your application's logic
+            throw new Error("Population has no individuals and samples.");
+        }
+    } catch (err) {
+        throw err;
+    }
+}
+
+const getPopulationPIData = async(piid) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const indSampCollObj = db.collection(indSampCollection);
+    const popCollObj = db.collection(populationSVCollection);
+
+    try {
+        const populations = await popCollObj.find({ PIID: parseInt(piid) }).toArray();
+        if (populations.length === 0) {
+            return { message: "No populations found with the given PIID." };
+        }
+
+        let results = [];
+        for (let pop of populations) {
+            // Collect all individualIds and sampleIds from the matching populations
+            let individualIds = [];
+            let sampleIds = [];
+            if (Array.isArray(pop.individualsWithSamples) && pop.individualsWithSamples.length > 0) {
+                pop.individualsWithSamples.forEach(indivSample => {
+                    individualIds.push(indivSample.individualID);
+                    sampleIds.push(indivSample.fileID);
+                });
+
+                // Fetch the detailed individual and sample information from the second collection
+                const details = await indSampCollObj.find({
+                    individualID: { $in: individualIds },
+                    fileID: { $in: sampleIds }
+                }, {
+                    projection: {
+                        _id: 0,
+                        SampleLocalID: 1,
+                        IndLocalID: 1,
+                        individualID: 1,
+                        fileID: 1,
+                        SeqTypeName: "$seqType",
+                        AssemblyType: 1
+                    }
+                }).toArray();
+
+                // Convert field names and prepare the detailed part
+                const formattedDetails = details.map(detail => ({
+                    SampleLocalID: detail.SampleLocalID,
+                    IndividualLocalID: detail.IndLocalID,
+                    individualID: detail.individualID,
+                    fileID: detail.fileID,
+                    SequencingType: detail.SeqTypeName,
+                    AssemblyType: detail.AssemblyType
+                }));
+
+                // Add population data and its details to results
+                results.push({
+                    PopulationID: pop._id,
+                    Description: pop.Desc,
+                    Samples: formattedDetails
+                });
+            }
+            else{
+                results.push({
+                    PopulationID: pop._id,
+                    Description: pop.Desc,
+                    Samples: []
+                });    
+            }
+        }
+
+        //console.log(results);
+        return results;
+
+   
+    } catch(err) {
+        throw err;
+    }
+}
+
+const getPopulation = async(PopID) => {
+    var client = getConnection();
+    const db = client.db(dbName);
+    const indSampCollObj = db.collection(indSampCollection);
+    const popCollObj = db.collection(populationSVCollection);
+
+    try {
+        const populations = await popCollObj.find({ _id: parseInt(PopID) }).toArray();
+        if (populations.length === 0) {
+            return { message: "No populations found with the given ID." };
+        }
+
+        let results = [];
+        for (let pop of populations) {
+            // Collect all individualIds and sampleIds from the matching populations
+            let individualIds = [];
+            let sampleIds = [];
+            if (Array.isArray(pop.individualsWithSamples) && pop.individualsWithSamples.length > 0) {
+                pop.individualsWithSamples.forEach(indivSample => {
+                    individualIds.push(indivSample.individualID);
+                    sampleIds.push(indivSample.fileID);
+                });
+            
+
+                // Fetch the detailed individual and sample information from the second collection
+                const details = await indSampCollObj.find({
+                    individualID: { $in: individualIds },
+                    fileID: { $in: sampleIds }
+                }, {
+                    projection: {
+                        _id: 0,
+                        SampleLocalID: 1,
+                        IndLocalID: 1,
+                        individualID: 1,
+                        fileID: 1,
+                        SeqTypeName: "$seqType",
+                        AssemblyType: 1
+                    }
+                }).toArray();
+
+                // Convert field names and prepare the detailed part
+                const formattedDetails = details.map(detail => ({
+                    SampleLocalID: detail.SampleLocalID,
+                    IndividualLocalID: detail.IndLocalID,
+                    individualID: detail.individualID,
+                    fileID: detail.fileID,
+                    SequencingType: detail.SeqTypeName,
+                    AssemblyType: detail.AssemblyType
+                }));
+
+                // Add population data and its details to results
+                results.push({
+                    PopulationID: pop._id,
+                    Description: pop.Desc,
+                    Samples: formattedDetails
+                });
+            }
+            else{
+                results.push({
+                    PopulationID: pop._id,
+                    Description: pop.Desc,
+                    Samples: []
+                });
+            }
+        }
+
+        //console.log(results);
+        return results;
+
+     
+    } catch(err) {
+        throw err;
+    }
+}
+
+
 /*
 async function createConnection() {
     const url = `mongodb://${host}:${port}`;
@@ -2403,4 +3169,4 @@ async function createConnection() {
 }
 */
 
-module.exports = { initialize,initializeLogLoc,checkApiUser, storeMultiple, checkProband, updateData, readData, getAttrData, createDoc, createFamily, assignInd, addPedigree, showPedigree, updateRelative, updateFamily, getPIData, getFamily ,getResultCollObj, getUnassignedInd, checkIndFilter, removeRelative, getDefinedRelatives, getInheritanceData, getRelativeData , getFamilyPIData, unassignRelative ,checkTrioQueue, getTrioCodes,getTrioFamily,getTrioMeta,getTrioFamilyOld,updateFamilySid,updateTrio,getFamTrio,checkTrioMember,triggerAssemblySampTrio,trioVarAnno,renameColl,trioQueue , reannoqueue};
+module.exports = { createPopulation, updatePopulation,addIndividualsAndSamplesToPop, removeIndividualsAndSamplesFromPop, getPopulationPIData, getPopulation, getSVTrioFamily,initializeLogLocSVAnnot,initialize,initializeLogLoc,checkApiUser, storeMultiple, checkProband, updateData, readData, getAttrData, createDoc, createFamily, assignInd, addPedigree, showPedigree, updateRelative, updateFamily, getPIData, getFamily ,getResultCollObj, getUnassignedInd, checkIndFilter, removeRelative, getDefinedRelatives, getInheritanceData, getRelativeData , getFamilyPIData, unassignRelative ,checkTrioQueue, getTrioCodes,getTrioFamily,getTrioMeta,getTrioFamilyOld,updateFamilySid,updateTrio,getFamTrio,checkTrioMember,triggerAssemblySampTrio,trioVarAnno,renameColl,trioQueue , reannoqueue,getFamAnalyseTypes,familyAnalysisPrecomp,familyAnalysisPrecompStatus};

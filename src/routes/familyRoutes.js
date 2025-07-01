@@ -25,6 +25,10 @@ const unassignRelative = require('../controllers/entityController.js').unassignR
 const getTrioMeta = require('../controllers/entityController.js').getTrioMeta;
 const updateTrio = require('../controllers/entityController.js').updateTrio;
 const trioVarAnno = require('../controllers/entityController.js').trioVarAnno;
+const getFamAnalyseTypes = require('../controllers/entityController.js').getFamAnalyseTypes;
+const familyAnalysisPrecomp = require('../controllers/entityController.js').familyAnalysisPrecomp;
+const familyAnalysisPrecompStatus = require('../controllers/entityController.js').familyAnalysisPrecompStatus;
+const getSVTrioFamily  = require('../controllers/entityController.js').getSVTrioFamily;
 // logger specific settings
 var pid = process.pid;
 var uDateId = new Date().valueOf();
@@ -445,6 +449,34 @@ const familyRoutes = (app) => {
         }
     });
 
+    // SV - Endpoint that will be used to  getTrioFamilies based on proband
+    app.route('/getTrioFamiliesSV/:type/:id')
+    .get(loginRequired,async(req,res,next) => {
+        /*try {
+            res.status(200).json({'message':'getTrioFamilies:disabled for this release'});
+        } catch(err) {
+            res.status(400).json({'message':'getTrioFamilies:disabled for this release'});
+        }*/
+        var type = req.params.type;
+        var id = parseInt(req.params.id);
+        console.log("type is "+type);
+        console.log("id is "+id);
+        if ( id == null ) {
+            throw "invalid id value";
+        }
+        try {
+            if ( ( type === "proband") || ( type === "family") || ( type === "piid" )) {
+                createLog.debug(`Request received to getTrioFamilies based on ${type}`);
+                var res1 = await getSVTrioFamily(type,id);
+                res.status(200).json({'message':res1});
+            } else {
+                throw "Invalid type.supported types are proband or family or piid";
+            }
+        } catch(err1) {
+            next(`${err1}`);
+        }
+    });
+
     // Endpoint to get trio meta data based on trio id
     app.route('/getTrioMetaData/:id')
     .get(loginRequired,async(req,res,next) => {
@@ -544,6 +576,59 @@ const familyRoutes = (app) => {
             next(`${err}`);
         }
     });
+
+    // Endpoint to get family analysis options for the provided Individuals
+    app.route('/familyAnalysisTypes')
+    .post(loginRequired,async(req,res,next) => {
+        try {
+            var reqBody = req.body;
+            if ( ! reqBody.family_members ) {
+                throw "family_members needed to process this request";
+            }
+        
+            var fam_mem = reqBody.family_members;
+            console.log(fam_mem);
+            var res1 = await getFamAnalyseTypes(fam_mem);
+            res.status(200).json({'message':res1});
+        } catch(err) {
+            next(`${err}`);
+        }
+    });
+
+
+    // Endpoint to launch family analysis pre-computation
+    app.route('/familyAnalysis/Precompute')
+    .post(loginRequired,async(req,res,next) => {
+        try {
+            var reqBody = req.body;
+            if ( ! reqBody.family_local_id || ! reqBody.affected_mem || ! reqBody.assembly_type ) {
+                throw "Missing request body parameters";
+            }
+        
+            var res1 = await familyAnalysisPrecomp(reqBody);
+            res.status(200).json({'message':res1});
+        } catch(err) {
+            next(`${err}`);
+        }
+    });
+
+    // Endpoint to get the status of family analysis precomputation
+    app.route('/familyAnalysis/Precompute/status/:fam_code')
+    .get(loginRequired,async(req,res,next) => {
+        
+        var fam_code = req.params.fam_code;
+        if ( fam_code == null ) {
+            throw "Missing family code";
+        }
+
+        try {
+            var res1 = await familyAnalysisPrecompStatus(fam_code);
+            res.status(200).json({'message':res1});
+        } catch(err) {
+            next(`${err}`);
+        }
+    });
+
 }
 
 module.exports = { familyRoutes };

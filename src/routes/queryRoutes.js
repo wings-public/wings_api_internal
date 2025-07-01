@@ -23,7 +23,7 @@ const queryRoutes = (app) => {
            //var jsonFile = path.join(basePath,'query','json',`queryInput_${pid}.json`);
            var jsonData = req.body;
 
-           if ( !jsonData['trio']) {
+           if ( !jsonData['trio'] && ! jsonData['family']) {
                if ( (!jsonData['condition']) || (!jsonData['invoke_type']) || (!jsonData['assembly_type'])) {
                     throw "JSON Structure Error- invoke_type or assembly_type missing";
                 }
@@ -40,15 +40,22 @@ const queryRoutes = (app) => {
                     throw "Required parameters missing for var_disc request type";
                 }
             } else if ( jsonData['trio']) {
-                console.log("********************************")
+                /*console.log("********************************")
                 console.log("queryRoutes");
-                console.log("********************************")
+                console.log("********************************")*/
                 if ( jsonData['trio']['inheritance']) {
                     if ( !jsonData['trio']['trioLocalID']) {
                         throw "trioLocalID expected for Trio inheritance queries"
                     }
                 } else if ( !jsonData['trio']['trioLocalID'] || !jsonData['trio']['trio_code'] ) {
                     throw "trioLocalID and trio_code are expected for trio filter queries";
+                } 
+            } else if ( jsonData['family']) {
+                /*console.log("********************************")
+                console.log("queryRoutes");
+                console.log("********************************")*/
+                if ( !jsonData['family']['famLocalID'] ) {
+                    throw "familyLocalID expected for family filter queries";
                 } 
             } else {
                 if ( ! jsonData['fileID']) {
@@ -86,10 +93,10 @@ const queryRoutes = (app) => {
 
            var jsonReqData = JSON.stringify(jsonData);
 
-           console.log("queryRoutes - Logging json data");
+           /*console.log("queryRoutes - Logging json data");
            console.log(jsonReqData);
            console.log(queryScript);
-           console.log("Forked query script")
+           console.log("Forked query script") */
            var subprocess = spawn.fork(queryScript,['--post_json',jsonReqData]);
 
            //var subprocess = spawn.fork(queryScript,['--json',jsonFile]);
@@ -113,6 +120,7 @@ const queryRoutes = (app) => {
                     createLog.debug("************* IPC RECEIVED MSG FOR ****************"+data);
                     
                     var str = JSON.parse(data);
+                    //console.log(str);
                     var pid = str['pid'];
                     var batch = str['batch'];
                     var req = str['req'];   
@@ -130,6 +138,8 @@ const queryRoutes = (app) => {
 
                     if ( req == "last" ) {
                         // Add code to kill the child process
+                        //console.log("Received now ----------------");
+
                         setTimeout(() => {
                             createLog.debug("Done with TIMEOUT ****************");
                             subprocess.kill()
@@ -218,26 +228,26 @@ const queryRoutes = (app) => {
             var reqTrColl = db.collection(reqTrackCollection);
             
             // fetch the request track document
-            console.log("queryID is "+queryID)
+            //console.log("queryID is "+queryID)
             var doc = await reqTrColl.findOne({'_id':queryID});
-            console.log(doc)
+            //console.log(doc)
             if ( doc ) {
                 var created = doc.createdAt;
                 var ttl = process.env.MONGO_RESULT_TTL;
                 // get current time
                 var currDate = new Date();
                 // diff current time - createdAt time = seconds
-                console.log("created "+created)
-                console.log("currDate "+currDate)
+                //console.log("created "+created)
+                //console.log("currDate "+currDate)
                 var seconds = (currDate.getTime() - created.getTime()) / 1000;
-                console.log(seconds)
+                //console.log(seconds)
                 // if seconds >= ttl seconds, then status to expired.
-                console.log("seconds difference "+seconds)
-                console.log("Defined ttl "+ttl)
+                //console.log("seconds difference "+seconds)
+                //console.log("Defined ttl "+ttl)
                 
                 var no_var_stat = await reqTrColl.findOne({_id: queryID,'status':'no-variants'});
-                console.log("Logging no variant status")
-                console.log(no_var_stat)
+                //console.log("Logging no variant status")
+                //console.log(no_var_stat)
 
                 if ( seconds >= ttl ) {
                     // update the status
@@ -277,14 +287,14 @@ const queryRoutes = (app) => {
         try {
 
            //console.log(req);
-           console.log("Query Sample Route Point ");
+           //console.log("Query Sample Route Point ");
            var pid = process.pid;
            var basePath = path.parse(__dirname).dir;
            //var jsonFile = path.join(basePath,'query','json',`queryInput_${pid}.json`);
            var jsonData = req.body;
-           console.log("Logging the JSON data received as input");
-           console.log(jsonData);
-           if ( !jsonData['trio']) {
+           //console.log("Logging the JSON data received as input");
+           //console.log(jsonData);
+           if ( !jsonData['trio'] && !jsonData['family']) {
                if ( (!jsonData['invoke_type']) || (!jsonData['assembly_type'])) {
                    throw "JSON Structure Error- invoke_type or assembly_type missing";
                }
@@ -294,7 +304,7 @@ const queryRoutes = (app) => {
             }          
 
            if ( jsonData['var_disc']) {
-               console.log("Detected var_disc request type");
+               //console.log("Detected var_disc request type");
                if ( !jsonData['var_disc']['geneID'] && !jsonData['var_disc']['region']) {
                    throw "geneID or region values expected for var_disc";
                }
@@ -305,7 +315,14 @@ const queryRoutes = (app) => {
                if ( !jsonData['trio']['trioLocalID'] || !jsonData['trio']['trio_code']) {
                    throw "trioLocalID and trio_code are expected for trio filter queries";
                } 
-           } else {
+           } else if ( jsonData['family']) {
+            //console.log("********************************")
+            //console.log("getCountPost");
+            //console.log("********************************")
+            if ( !jsonData['family']['famLocalID'] ) {
+                throw "familyLocalID expected for family filter queries";
+            } 
+          } else {
                if ( ! jsonData['fileID']) {
                    throw "fileID required";
                }
@@ -313,7 +330,7 @@ const queryRoutes = (app) => {
            //console.dir(jsonData,{"depth":null});
            
            var queryScript = path.join(basePath,'query','sampleFilterQuery.js');           
-           console.log("Calling "+queryScript);
+           //console.log("Calling "+queryScript);
               
            req.on('error', (err) => {
                next(`${err}`);
@@ -452,6 +469,84 @@ const queryRoutes = (app) => {
             next(`${err}`);
         }    
     });
+
+    app.route('/queryResults/:queryID')
+    .get( loginRequired,async (req,res,next) => {
+        try {
+            if ( ! req.params.queryID  ) {
+                next('Failure-Error message Request parameters null');
+                //res.status(400).send("Failure-Error message Request parameters null");
+            }
+
+            //console.log('I am at queryResults');
+            var queryID = parseInt(req.params.queryID);
+
+            var client = getConnection();
+            const db = client.db(dbName);
+            var resColl = db.collection(resultCollection);
+
+            var reqTrColl = db.collection(reqTrackCollection);
+            
+            // fetch the request track document
+            //console.log("queryID is "+queryID)
+            var doc = await reqTrColl.findOne({'_id':queryID});
+            //console.log(doc)
+            if ( doc ) {
+                var created = doc.createdAt;
+                var ttl = process.env.MONGO_RESULT_TTL;
+                // get current time
+                var currDate = new Date();
+                // diff current time - createdAt time = seconds
+                //console.log("created "+created)
+                //console.log("currDate "+currDate)
+                var seconds = (currDate.getTime() - created.getTime()) / 1000;
+                //console.log(seconds)
+                // if seconds >= ttl seconds, then status to expired.
+                //console.log("seconds difference "+seconds)
+                //console.log("Defined ttl "+ttl)
+                
+                var no_var_stat = await reqTrColl.findOne({_id: queryID,'status':'no-variants'});
+                //console.log("Logging no variant status")
+                //console.log(no_var_stat)
+
+                if ( seconds >= ttl ) {
+                    // update the status
+                    await reqTrColl.updateOne({'_id':queryID},{$set:{'status':'expired'}})
+                    res.send(JSON.stringify({'status':'expired'}));
+                } else if (no_var_stat) {
+                    //console.log("Logging no variant status")
+                    res.send(JSON.stringify({'status':'no-variants'}));
+                } else if ( doc['status'] == "inprogress") {
+                    res.send(JSON.stringify({'status':'inprogress'}));
+                } else {
+                    //await reqTrColl.updateOne({'_id':queryID},{$set:{'status':'fetched'}});
+                    // first include a filter to check if the 'pid' is not expired
+                    var filter = {"_id":queryID};
+                    //console.dir(filter);
+                    //var stream = resColl.find(filter,{'projection': {'_id':0,'hostId' : 1,'centerId' : 1,'documents':1,'counts' : 1} } ).stream();
+                    // check if hostId and centerId has to be included in the response
+                    var stream = resColl.find(filter,{'projection': {'_id':0,'documents':1,'status':1} } ).stream();
+
+                    stream.on('data', (data) => {
+                        //console.log(data);
+                        res.write(JSON.stringify(data));
+                    });
+
+                    stream.on('end', (data) => {
+                        res.end();
+                    });
+                        
+                }
+            }
+            
+
+        } catch(err) {
+            //console.log("Error in route endpoint query");
+            next(`${err}`);
+        }
+    });
+
+
 }
 
 

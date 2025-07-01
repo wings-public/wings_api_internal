@@ -284,7 +284,7 @@ const getAnnotationStatus = (tokenH,sid,db,uDateId) => {
         console.log("uDateId"+uDateId);
         statsColl.findOne({_id:parseInt(uDateId)},{projection:{'tmp_dir':1}}).then( (resp) => {
             //statsColl.findOne({_id:parseInt(uDateId)}).then( (resp) => {
-            console.log("Logging response of find request ")
+            console.log("Logging response of find request ");
             console.log(resp);
             var tmpDir = "";
             tmpDir = resp.tmp_dir;
@@ -434,14 +434,21 @@ const updateAnnotations = async(sid,anno,assemblyType,type = "def") => {
         var novelScript = path.join(parsePath,'parser','novelAnnotationUpload.js');
         var annoScript = path.join(parsePath,'import','updateExistingAnnotations.js');
         var maxEntScript = path.join(parsePath,'import','updateTranscriptAnno.js');
+        var novelScriptHist = path.join(parsePath,'parser','novelAnnoUploadReanno.js');
 
         // Upload Novel Annotations
         var subprocess = "";
-        if ( type == "reannotate" ) {
-            subprocess = spawn.fork(novelScript, ['--parser',"Novel",'--input_file', anno,'--assembly', assemblyType,'--type',type]);
+        // different script to be invoked when annotation archival is activated.
+        if ( process.env.HIST_ANNO_VER ) {
+            subprocess = spawn.fork(novelScriptHist, ['--parser',"Novel",'--input_file', anno,'--assembly', assemblyType]);
         } else {
-            subprocess = spawn.fork(novelScript, ['--parser',"Novel",'--input_file', anno,'--assembly', assemblyType]);
+            if ( type == "reannotate" ) {
+                subprocess = spawn.fork(novelScript, ['--parser',"Novel",'--input_file', anno,'--assembly', assemblyType,'--type',type]);
+            } else {
+                subprocess = spawn.fork(novelScript, ['--parser',"Novel",'--input_file', anno,'--assembly', assemblyType]);
+            }
         }
+
         var procPid = subprocess.pid;
         await closeSignalHandler(subprocess);
 
@@ -467,6 +474,8 @@ const updateAnnotations = async(sid,anno,assemblyType,type = "def") => {
             })
         }) */
     } catch(err) {
+        console.log("Error logged in updateAnnotations");
+        console.log(err);
         throw err;
     }
 }

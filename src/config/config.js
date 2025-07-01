@@ -57,8 +57,14 @@ const dev = {
    individualCollection : process.env.MONGO_IND_COLL || 'Individuals',
    importCollection1 : process.env.MONGO_IMPORT_COLL_TYPE1 || 'wingsVcfDataGRCh37',
    importCollection2 : process.env.MONGO_IMPORT_COLL_TYPE2 || 'wingsVcfDataGRCh38',
+   importCollection3 : process.env.MONGO_IMPORT_COLL_TYPE3 || 'wingsVcfSVDataFileGRCh38',
    importStatsCollection : process.env.MONGO_IMPORT_STATS || 'importStats',
    resultCollection : process.env.MONGO_Q_RESULT_COLL || 'variantQueryResults',
+   resultSV : process.env.MONGO_Q_RESULT_COLL_SV || 'SVvariantQueryResults',
+   resultsSVFreqDisc : process.env.MONGO_Q_RESULT_COLL_SV || 'SVFreqDisc',
+   SVdockerImage : process.env.SV_ANNOT_DOCKER_IMAGE || 'quay.io/biocontainers/annotsv:3.4--py312hdfd78af_1',
+   annotationDirSV : process.env.ANNOTATION_DIR_SV || '/home/ben/AnnotSV_annotations',
+   populationSVCollection : process.env.MONGO_SVPOP_COLL || 'population',
    variantAnnoCollection1 : process.env.MONGO_ANNOTATIONS_TYPE1 || 'variantAnnotationsGRCh37',
    variantAnnoCollection2 : process.env.MONGO_ANNOTATIONS_TYPE2 || 'variantAnnotationsGRCh38',
    sampleAssemblyCollection : process.env.MONGO_SAMPLE_ASSEMBLY || 'wingsSampleAssemblyMap',
@@ -77,7 +83,10 @@ const dev = {
    variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
    trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
    reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
-   annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
+   annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory',
+   famAnalysisColl : process.env.MONGO_FAM_ANALYSE_COLL || 'wingsFamAnalysis',
+   resultsSVFreqDisc : process.env.MONGO_Q_RESULT_COLL_FA_SV || 'SVFreqDisc',
+   annoMetaCollection : process.env.MONGO_ANNO_META || 'wingsAnnoConfig'
  }
 };
 
@@ -146,7 +155,15 @@ const test = {
     variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
     trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
     reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
-    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
+    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory',
+    famAnalysisColl : process.env.MONGO_FAM_ANALYSE_COLL || 'wingsFamAnalysis',
+    importCollection3 : process.env.MONGO_IMPORT_COLL_TYPE3 || 'wingsVcfSVDataGRCh38',
+    resultSV : process.env.MONGO_Q_RESULT_COLL_SV || 'SVvariantQueryResults',
+    SVdockerImage : process.env.SV_ANNOT_DOCKER_IMAGE || 'quay.io/biocontainers/annotsv:3.4--py312hdfd78af_1',
+    annotationDirSV : process.env.ANNOTATION_DIR_SV || '/home/ben/AnnotSV_annotations',
+    populationSVCollection : process.env.MONGO_SVPOP_COLL || 'population',
+    resultsSVFreqDisc : process.env.MONGO_Q_RESULT_COLL_FA_SV || 'SVFreqDisc',
+    annoMetaCollection : process.env.MONGO_ANNO_META || 'wingsAnnoConfig'
   }
  };
 
@@ -215,7 +232,15 @@ const test = {
     variantDiscResults : process.env.MONGO_VAR_DIS_RES_COLL || 'wingsVarDiscResults',
     trioCollection : process.env.MONGO_TRIO_COLL || 'wingsTrioColl',
     reqTrackCollection : process.env.MONGO_Q_REQ_TRACK_COLL || 'variantQueryReqTrack',
-    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory'
+    annoHistColl : process.env.MONGO_ANNO_HIST || 'wingsAnnotationHistory',
+    famAnalysisColl : process.env.MONGO_FAM_ANALYSE_COLL || 'wingsFamAnalysis',
+    importCollection3 : process.env.MONGO_IMPORT_COLL_TYPE3 || 'wingsVcfSVDataGRCh38',
+    resultSV : process.env.MONGO_Q_RESULT_COLL_SV || 'SVvariantQueryResults',
+    SVdockerImage : process.env.SV_ANNOT_DOCKER_IMAGE || 'quay.io/biocontainers/annotsv:3.4--py312hdfd78af_1',
+    annotationDirSV : process.env.ANNOTATION_DIR_SV || '/home/ben/AnnotSV_annotations',
+    populationSVCollection : process.env.MONGO_SVPOP_COLL || 'population',
+    resultsSVFreqDisc : process.env.MONGO_Q_RESULT_COLL_FA_SV || 'SVFreqDisc',
+    annoMetaCollection : process.env.MONGO_ANNO_META || 'wingsAnnoConfig'
   }
  };
 

@@ -43,7 +43,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         var fastaFile;
         var rejectFileTmp;
         var variantFile = liftMntSrc+'/'+reqId+'-variant.bed';
-        console.log("********** VARIANT FILE is "+variantFile);
+        //console.log("********** VARIANT FILE is "+variantFile);
         var chainurl;
         var fastaurl;
         var dictFile;
@@ -69,15 +69,15 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         var path2 = path.join(basePath,"hg38");
         if (!fs.existsSync(path1)) {
             fs.mkdirSync(path1);
-            console.log("Created required path "+path1);
+            //console.log("Created required path "+path1);
         }
         if (!fs.existsSync(path2)) {
             fs.mkdirSync(path2);
-            console.log("Created required path "+path2);
+            //console.log("Created required path "+path2);
         }
 
 
-        console.log("assembly is *****************"+assembly);
+        //console.log("assembly is *****************"+assembly);
         if ( (assembly == "hg19") || (assembly == "GRCh37") ) {
             assemblyDir = "hg19";
             inputFile = '/'+"hg19"+'/'+reqId+'.bed';
@@ -129,7 +129,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
         var rejectFile = ucscMntDst+rejectFileTmp;
         var hostRejectFile = liftMntSrc+rejectFileTmp;
         //chainFile = liftMntSrc+chainFile;
-        console.log(`hostLoc : ${hostLoc}`);
+        //console.log(`hostLoc : ${hostLoc}`);
         //console.log(`dockLoc ${dockLoc}`);
         var stream;
         var cmd = "";
@@ -152,10 +152,10 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
             // gatk docker will be used
 
             if ( standalone ) {
-                console.log(`hostLoc ${hostLoc}`);
+                /*console.log(`hostLoc ${hostLoc}`);
                 console.log(`chainFile ${chainFile}`);
                 console.log(`hostOpFile ${hostOpFile}`);
-                console.log(`hostRejectFile ${hostRejectFile}`);
+                console.log(`hostRejectFile ${hostRejectFile}`);*/
                 //var ucscLoc = "/home/nsattanathan/UCSC";
                 var ucscLoc = ".";
                 var currPath = path.parse(__dirname).dir;
@@ -206,11 +206,11 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
                     var chr = chrRegion[0].replace(re, '');
                     var region = chrRegion[1].split('-');
                     var liftedPos = chr+'-'+region[0]+'-'+region[1];
-                    console.log(`Lifted Region is ${liftedPos}`);
+                    //console.log(`Lifted Region is ${liftedPos}`);
                 
                     try {
                         var res = await writeFile(variantFile,liftedPos);
-                        console.log(`Variant data has been written to the file ${variantFile}`);
+                        //console.log(`Variant data has been written to the file ${variantFile}`);
                     } catch(err) {
                         console.log(err);
                         console.log("Error in writing data to the variant file");
@@ -228,8 +228,8 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
                             var rejReason = "Variant could not be lifted over to the other assembly.Reason:";
                             rejectData = rejReason;
                         }
-                        console.log("Logging reject array");
-                        console.log(rejectArr);
+                        //console.log("Logging reject array");
+                        //console.log(rejectArr);
                     } catch(err) {
 
                     }
@@ -260,7 +260,7 @@ async function execSeqDict(faFile,dictFile) {
         } else {
             cmd1 = `docker run  --rm -v ${liftMntSrc}:${ucscMntDst}   ${gatkImg}  gatk --java-options "-Xmx6G"  CreateSequenceDictionary -R ${faFile} -O ${dictFile}`;
         }
-        console.log(`Sequence dictionary command is ${cmd1}`);
+        //console.log(`Sequence dictionary command is ${cmd1}`);
 
         if ( ! fs.existsSync(dictFile)) {
             return new Promise( (resolve,reject) => {

@@ -12,10 +12,14 @@ var familyRoutes = require('./src/routes/familyRoutes').familyRoutes;
 var importRoutes = require('./src/routes/importRoutes').importRoutes;
 var queryRoutes = require('./src/routes/queryRoutes').queryRoutes;
 var createConnection = require('./src/controllers/dbConn.js').createConnection;
+var populationRoutes = require('./src/routes/populationSVRoutes.js').populationRoutes;
+var getRoutes = require('./src/routes/getRoutes.js').getRoutes;
+var queryRoutesSV = require('./src/routes/queryRoutesSV.js').queryRoutesSV;
 //const logger = require('./src/log/logger.js').logger;
 const {requestLogger, errorLogger}  = require('./src/controllers/loggerMiddleware.js');
 
 const configData = require('./src/config/config.js');
+
 const { app : {expressPort, privkey, cert, certAuth} } = configData;
 
 var initialize = require('./src/controllers/entityController.js').initialize;
@@ -99,6 +103,9 @@ try {
     familyRoutes(app);
     importRoutes(app);
     queryRoutes(app);
+    populationRoutes(app);
+    getRoutes(app);
+    queryRoutesSV(app);
 } catch(err) {
     console.log("Error in routes "+err);
 }

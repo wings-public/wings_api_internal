@@ -18,6 +18,10 @@ var phenotypeRoutes = require('./src/routes/phenotypeRoutes').phenotypeRoutes;
 var genepanelRoutes = require('./src/routes/genePanelRoutes').genepanelRoutes; 
 var varDiscRoutes = require('./src/routes/varDiscRoutes').varDiscRoutes;
 var createConnection = require('./src/controllers/dbConn.js').createConnection;
+// SV routes included
+var populationRoutes = require('./src/routes/populationSVRoutes.js').populationRoutes;
+var getRoutes = require('./src/routes/getRoutes.js').getRoutes;
+var queryRoutesSV = require('./src/routes/queryRoutesSV.js').queryRoutesSV;
 //const logger = require('./src/log/logger.js').logger;
 const {requestLogger, errorLogger}  = require('./src/controllers/loggerMiddleware.js');
 
@@ -116,6 +120,9 @@ try {
     queryRoutes(app);
     genepanelRoutes(app);
     varDiscRoutes(app);
+    populationRoutes(app);
+    getRoutes(app);
+    queryRoutesSV(app);
 } catch(err) {
     console.log("Error in routes "+err);
 }

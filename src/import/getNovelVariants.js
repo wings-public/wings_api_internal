@@ -163,7 +163,7 @@ async function getVariantsToAnnotate(db,sid,createLog,variantsFile,assemblyType)
 
     var lookupFilter = { $lookup : { 'from':variantAnnoCollection,'localField':'var_key','foreignField': '_id', 'as':'annotation_data' } };
 
-    //console.log("matchFIlter");
+    //console.log("matchFilter");
     //console.log(matchFilter);
     //console.log("lookupFilter");
     //console.log(lookupFilter);
@@ -196,7 +196,7 @@ async function getVariantsToAnnotate(db,sid,createLog,variantsFile,assemblyType)
         if ( 'annotation_data' in doc ) {
             annoObj = doc['annotation_data'][0];
             //console.log(annoObj);
-        }
+        } 
         
         // check if 'reannotation' key does not exist - novel criteria
         // annotated = 0 - default import request
@@ -208,7 +208,8 @@ async function getVariantsToAnnotate(db,sid,createLog,variantsFile,assemblyType)
             annoState = 1;
         }
 
-        if ( ('annotation_data' in doc ) &&  (annoObj['annotated'] == annoState) ) {
+        // rare case - annoObj is undefined - fix - 09/09/2024
+        if ( (! annoObj) || ( ('annotation_data' in doc ) &&  (annoObj['annotated'] == annoState) )  ) {
             var id = doc._id;
             //console.log(id);
             //console.log("Logging novel id ")

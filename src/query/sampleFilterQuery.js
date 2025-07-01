@@ -5,7 +5,7 @@
  */
 
 const configData = require('../config/config.js');
-const { db : {host,port,dbName,importCollection1,importCollection2,resultCollection,genePanelColl,variantQueryCounts,indSampCollection,trioCollection,reqTrackCollection},app:{instance,liftMntSrc} } = configData;
+const { db : {host,port,dbName,importCollection1,importCollection2,resultCollection,genePanelColl,variantQueryCounts,indSampCollection,trioCollection,reqTrackCollection,famAnalysisColl},app:{instance,liftMntSrc} } = configData;
 const closeSignalHandler = require('../controllers/execChildProcs.js').closeSignalHandler;
 const spawn  = require('child_process');
 const readline = require('readline');
@@ -20,6 +20,7 @@ const MongoClient = require('mongodb').MongoClient;
 const assert = require('assert');
 const path = require('path');
 var loggerMod = require('../controllers/loggerMod');
+const lodash = require("lodash")
 
 var client;
 var mongoHost = host;
@@ -32,6 +33,7 @@ const checkCollectionExists = require('../controllers/dbFuncs.js').checkCollecti
 const createTTLIndex = require('../controllers/dbFuncs.js').createTTLIndex;
 const createColIndex = require('../controllers/dbFuncs.js').createColIndex;
 const getInheritanceData = require('../controllers/entityController.js').getInheritanceData;
+const varPhenAnalysis = require('../controllers/varDisController.js').varPhenAnalysis;
 
 ( async function() {
     argParser
@@ -83,10 +85,12 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
             }
 
             var assemblyCheck = "";
-            if ( ! parsedJson['trio'] ) {
+            if ( ! parsedJson['trio'] && ! parsedJson['family'] ) {
                 assemblyCheck = parsedJson['assembly_type'];
-            } else {
+            } else if ( parsedJson['trio']) {
                 assemblyCheck = await fetchTrioBuildType(db,parsedJson['trio']['trioLocalID']);
+            } else if ( parsedJson['family']) {
+                assemblyCheck = await fetchFamBuildType(db,parsedJson['family']['famLocalID']);
             }
 
             var assemblyInfo = {};
@@ -160,13 +164,28 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                 
                 var res = "";
                 if ( parsedJson['var_disc']) {
+                    var reqColl = db.collection(reqTrackCollection);
                     if ( parsedJson['var_disc']['geneID']) {
                         var coll1 = db.collection(assemblyInfo['reqColl']); 
                         var batchCnt = 1;
                         //console.log("First request launched with request collection");
                         var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        if ( parsedJson['var_disc']['hpoList']) {
+                            var payload = { "batch" : 1,
+                                            "pid" : pid,
+                                            "req" : "done"
+                                        };
+        
+                            createLog.debug("Send the immediate response payload")
+                            createLog.debug(payload);
+                            console.log("Sending response payload")
+                            process.send(JSON.stringify(payload));  
+                        }
+
+
                         /*var pid = process.pid;
                         pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);*/
+                        await reqColl.updateOne({'_id':pid,},{$set:{'status':'inprogress'}});
                         // Step 1 : fetch the variants for the requested assembly
                         // Write variants to results collection for requested assembly
                         var totalBatch = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,coll1,createLog,parsedJson, assemblyInfo['reqAssembly'],batchCnt);
@@ -175,9 +194,57 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         createLog.debug("Next request launched with alternate collection ");
                         var coll2 = db.collection(assemblyInfo['altColl']); 
                         var nextBatch = totalBatch + 1;
+                        
+                        /////////////////// LIFTOVER FIX - ONLY if there is add_rule_pos///////////////////////////////////////////////////////////////////////     
+                        var retRegion = await logicalFilterProcessRegion(db,parsedJson,mapFilter,createLog);
+                        if (retRegion.length > 0) {    
+                            // alternate assembly variants will be lifted over to the request assembly
+                            //var region = parsedJson['var_disc']['region'];
+                            // for now - support only liftover for 1 region
+                            var region = retRegion[0];
+
+                            //console.log(`Liftoverscript is ${liftoverScript}`);
+                            //console.log(`Region ${region}`);
+                            //console.log("Assembly Info "+assemblyInfo['reqAssembly']);
+                            //console.log(`pid ${pid}`);
+                            var parsePath = path.parse(__dirname).dir;
+                            var liftoverScript = path.join(parsePath,'modules','ucscLiftover.js');
+                            createLog.debug("Assembly "+assemblyInfo['altAssembly']);
+
+                            var subprocess1 = spawn.fork(liftoverScript, ['--variant',region,'--assembly', assemblyInfo['reqAssembly'], '--req_id', pid] );
+                                                    
+                            var variantFile = path.join(liftMntSrc,pid+'-variant.bed');
+                        
+                            try {
+                                // Check if liftover process has completed
+                                await closeSignalHandler(subprocess1);
+                            
+                                var liftedVariant = await readFile(variantFile,createLog);
+
+                                createLog.debug("Liftover process completed now ");
+                            
+                                // Step3 : Update lifted region to the parsed json
+                                // ================================================
+                                // clone the parsed Json to another object. Update the lifted region
+                                //var clonedParsJson = { ... parsedJson};
+                            
+                                // find a solution to update the liftedVariant into the filter...
+                                //clonedParsJson['var_disc']['region'] = liftedVariant;
+                                // liftedVariant parameter is sent to update the filter with the lifted region
+                                retFilter = await logicalFilterProcess(db,parsedJson,mapFilter,createLog,liftedVariant);
+
+                                // update retFilter with this newly setup filter...
+                            } catch(err) {
+
+                            }
+                        } 
+
+                        /////////////////// LIFTOVER FIX ///////////////////////////////////////////////////////////////////////
 
                         // Step3 : Pass the fetched filter object to retFilter
+                        // --- only this filter will be different if there is a chromosome-region condition
                         var varFileLoc = await writeVariantsFile(pid,retFilter,projection,coll2,resultCol,batch);
+                        console.log(`varFileLoc:${varFileLoc}`)
 
                         // call liftoverVariantFile Start liftover
                         // perform liftover
@@ -209,12 +276,54 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         // liftover completed
 
                         //var res1 = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,coll2,createLog,parsedJson, assemblyInfo,nextBatch,"last");
+
+                        // if hpoList is present, then include this criteria
+                        if ( parsedJson['var_disc']['hpoList']) {
+                            try {
+                                var hpoList = parsedJson['var_disc']['hpoList'];
+                                var varList = [];
+                                var varPhen = await varPhenAnalysis(pid,hpoList,varList,assemblyInfo['reqAssembly'],parsedJson['seq_type']);
+                                //console.log("Results from varPhenAnalysis ");
+                                //console.dir(varPhen,{"depth":null});
+                                if ( varPhen['status'] == 'no-variants') {
+                                    await reqColl.updateOne({'_id':pid,},{$set:{'status':'no-variants'}});    
+                                } else {
+                                    await storeVarPhenRes(pid,varPhen,resultCol);
+                                    await reqColl.updateOne({'_id':pid,},{$set:{'status':'completed'}});
+                                    //console.log("Var Phen results stored in database")
+                                }
+                                // Send payload to indicate the process has completed
+                                var payload = { "batch" : 0,
+                                    "pid" : pid,
+                                    "req" : 'last'
+                                };
+                                process.send(JSON.stringify(payload));
+
+                            } catch(err) {
+                                console.log(err);
+                            }
+
+                            // store the returned results in db
+                        }
+
                     } else if (parsedJson['var_disc']['region']) {
                         var coll1 = db.collection(assemblyInfo['reqColl']); 
                         var batchCnt = 1;
-                    
                         var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        // Generate request ID and send immediately
+                        if ( parsedJson['var_disc']['hpoList']) {
+                            var payload = { "batch" : 1,
+                                            "pid" : pid,
+                                            "req" : "done"
+                                        };
+        
+                            createLog.debug("Send the immediate response payload")
+                            createLog.debug(payload);
+                            console.log("Sending response payload")
+                            process.send(JSON.stringify(payload));  
+                        }
 
+                        await reqColl.updateOne({'_id':pid,},{$set:{'status':'inprogress'}});
                         //var pid = process.pid;
                         //pid = pid + (parsedJson['centerId'] * parsedJson['hostId']);
 
@@ -235,7 +344,7 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         // perform liftover
                         var parsePath = path.parse(__dirname).dir;
                         var liftoverScript = path.join(parsePath,'modules','ucscLiftover.js');
-                        createLog.debug(`Launching request with the input ${varFileLoc}`);
+                        //createLog.debug(`Launching request with the input ${varFileLoc}`);
                         createLog.debug("Assembly "+assemblyInfo['altAssembly']);
                         //console.log("Request id is "+pid);
                         // alternate assembly variants will be lifted over to the request assembly
@@ -316,6 +425,34 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                                 await invokeLiftoverResults(nextBatch,pid,resultCol,assemblyInfo['altAssembly'],createLog,parsedJson,batch);
                                 //console.log("Lifted over variant data has been loaded to database.Results can be retrieved now");
                                 //console.log(liftedVariant);
+
+                                if ( parsedJson['var_disc']['hpoList']) {
+                                    try {
+                                        var hpoList = parsedJson['var_disc']['hpoList'];
+                                        var varList = [];
+                                        var varPhen = await varPhenAnalysis(pid,hpoList,varList,assemblyInfo['reqAssembly'],parsedJson['seq_type']);
+                                        //console.log("Results from varPhenAnalysis ");
+                                        //console.dir(varPhen,{"depth":null});
+                                        if ( varPhen['status'] == 'no-variants') {
+                                            await reqColl.updateOne({'_id':pid,},{$set:{'status':'no-variants'}});    
+                                        } else {
+                                            await storeVarPhenRes(pid,varPhen,resultCol);
+                                            await reqColl.updateOne({'_id':pid,},{$set:{'status':'completed'}});
+                                            //console.log("Var Phen results stored in database")
+                                        }
+                                        // Send payload to indicate the process has completed
+                                        var payload = { "batch" : 0,
+                                            "pid" : pid,
+                                            "req" : 'last'
+                                        };
+                                        process.send(JSON.stringify(payload));
+                                    } catch(err) {
+                                        console.log(err);
+                                    }
+        
+                                    // store the returned results in db
+                                }
+                                
                             } catch(err) {
                                 createLog.debug("Logging error from varDiscController-liftover error");
                                 createLog.debug(err);
@@ -327,8 +464,8 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         }
 
                     }   
-                } else if ( parsedJson['trio']) {
-                    if ( parsedJson['trio']['inheritance'] === "compound-heterozygous" ) {
+                } else if ( parsedJson['trio'] || parsedJson['family']) {
+                    if ( parsedJson['trio'] && parsedJson['trio']['inheritance'] === "compound-heterozygous" ) {
                         createLog.debug("Inheritance Trio request")
                         //console.log("*******************************")
                         // suitable code section to create index for geneID in result collection
@@ -394,9 +531,14 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                         createLog.debug("Finish- Write the (final)results to results collection ")
 
                     } else {
+                        // else part - trio requests, trio inheritance(non comp het), family requests
                         //var pid = process.pid;
-                        var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                        console.log("I am here but not allowed inside")
                         if ( parsedJson['trio'] && parsedJson['trio']['inheritance'])  {
+                            var batchCnt = 1;
+                            var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                            console.log("Generated pid "+pid);
+                            console.log("here....")
                             // API based requests. maternal,paternal,recessive and denovo
                             if ( parsedJson['trio']['inheritance'] != "compound-heterozygous") {
                                 var payload = { "batch" : 1,
@@ -409,19 +551,48 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
                                 console.log("Sending response payload")
                                 // Send the reponse payload immediately.
                                 process.send(JSON.stringify(payload));
+                                res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);
+                            }
+                        } else {
+                            //console.log("Now i am stepping in here.....");
+                            var pid = await genReqID(reqTrackCollection,db,parsedJson);
+                            console.log("generated pid is ...... "+pid)
+                            
+                            var batchCnt = 1;
+                            if ( parsedJson['family']) {
+                                //var pid = process.pid;
+                                var payload = { "batch" : 1,
+                                    "pid" : pid,
+                                    "req" : "done"
+                                };
+
+                                // send process id immediately
+                                process.send(JSON.stringify(payload));
+                                await famVarResults(pid,projection,collection,resultCol,batch,retFilter,createLog,parsedJson,assemblyInfo['reqAssembly'],db,batchCnt);
+                            } else {
+                                // UI Trio Requests
+                                res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);
                             }
                         }
-                        // normal trio cases and inheritance
-                        var batchCnt = 1;
-                        
-                        console.log("********************* PID "+pid)
-                        res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);                    
+                                      
                     }
                 } else {
                     // regular filters (Sample Discovery)
+                    //console.log("This will be the last step......")
                     var batchCnt = 1;
                     var pid = await genReqID(reqTrackCollection,db,parsedJson);
                     //var pid = process.pid;
+                    // query-fix
+                    if ( parsedJson['api'] ) {
+                        var payload = { "batch" : 1,
+                                            "pid" : pid,
+                                            "req" : "done"
+                                            };
+        
+                                            
+                        // query-fix
+                        process.send(JSON.stringify(payload)); 
+                    }
                     res = await processLogicalFilter(pid,retFilter,projection,batch,resultCol,db,collection,createLog,parsedJson,assemblyInfo['reqAssembly'],batchCnt);                    
                 }
                 
@@ -467,7 +638,7 @@ const getInheritanceData = require('../controllers/entityController.js').getInhe
 
                 } else {
                     var obj = await getInheritanceData(parsedJson['family_filter']);
-                    console.log(obj);
+                    //console.log(obj);
                     process.send({"debug":obj});
                 }
             } catch(err) {
@@ -573,14 +744,22 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
         // FIX28
 
         //await new Promise(resolve => setTimeout(resolve,100000))
-        var logStream = await collection.find(filter).sort(defaultSort);
+        console.log("Next step is here???")
+        console.dir(filter,{"depth":null});
+        var logStream = null;
+        if ( parsedJson['var_disc']) {
+            logStream = await collection.find(filter);
+        } else {
+            logStream = await collection.find(filter).sort(defaultSort);
+        }
+        
         logStream.project(projection); 
         var docs = 0;
 
         var timeField = new Date();
         //var batchCnt = 1;
         //var batchId = `batch${batchCnt}`
-	    // Changing batchCnt format
+	    // Changing batchCnt for mat
         //console.log("Batch id received as input is "+batchCnt);
         var docId = 1;
         var loadHash = {};
@@ -595,11 +774,13 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
 
         while ( await logStream.hasNext() ) {
             const doc = await logStream.next();
+            //console.log(doc);
+            //console.log(docs);
             ++docs;
             bulkOps.push(doc);
             if ( bulkOps.length === batch ) {
                 createLog.debug(`loadResultCollection ${batchCnt}`);
-                console.log(`Invoked results collection with batchcount ${batchCnt} and pid ${pid}`);
+                //console.log(`Invoked results collection with batchcount ${batchCnt} and pid ${pid}`);
                 loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
                 //console.log("Batch count is "+batchCnt);
                 batchCnt++;
@@ -610,6 +791,7 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
 
         // check & process the last batch of data
         if ( bulkOps.length > 0 ) {
+            console.log("Now last set of data .... ")
             createLog.debug(`invoke result collection for batch ${batchCnt} last`);
             //loadResultCollection(createLog,resultCol,"last",pid,batchId,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo);
             if ( ! parsedJson['var_disc'] ) {
@@ -617,6 +799,7 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
             }
             //loadResultCollection(createLog,resultCol,"last",pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
             // Update-Variant Discovery : last batch has to be set to 1 only after the last assembly is processed
+            console.log("hello... there")
             loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
         }
         if ( ! docs ) {
@@ -630,7 +813,16 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
                     reqColl.updateOne({'_id':pid},{$set:{'status':"no-variants"}})
                 } else {
                     // sample-discovery and trio requests
-                    process.send({"count":"no_variants"});
+                    // query-fix
+                    // applicable for samp-disc api requests
+                    if ( parsedJson['api'] || parsedJson['family']) {
+                        reqColl.updateOne({'_id':pid},{$set:{'status':"no-variants"}});
+                    } else {
+                        // UI - samp disc, trio
+                        console.log("Stepped here??")
+                        process.send({"count":"no_variants"});
+                    }
+                    
                 }
                 
                 // FIX28
@@ -647,6 +839,7 @@ async function processLogicalFilter(pid,filter,projection,batch,resultCol,db,col
         //return "success";
         return batchCnt;
     } catch(err) {
+        console.log(err)
         throw err;
     }
 }
@@ -739,6 +932,7 @@ async function writeVariantsFile(pid,filter,projection,collection,resultCol,batc
 async function loadLiftedVariants(variantFile,resultCol,pid) {
     var rd;
     try {
+        //console.log("loadLiftedVariants");
         //console.log("Reading file ----------------"+variantFile);
         if ( ! fs.existsSync(variantFile)) {
             return "success";
@@ -949,12 +1143,27 @@ function loadResultCollection(createLog,resultCol,reqVal,pid,batch,timeField,loa
             } else {
                 process.send(JSON.stringify(payload)); // to be added once the child_process is attached
             }*/
+            // query-fix
+            if ( parsedJson['api']  || parsedJson['family']) {
+                payload.batch = 0;
+                if ( reqVal == "last") {
+                    process.send(JSON.stringify(payload));    
+                } else {
+                    process.send(JSON.stringify({}));
+                }
+            } else if (parsedJson['var_disc']['hpoList']) {
+                process.send(JSON.stringify({}));
+            } else {
+                console.log("loadresults collection payload send")
+                process.send(JSON.stringify(payload)); // to be added once the child_process is attached
+            }
+
             createLog.debug("SampDisc, VarDisc or Trio request");
-            process.send(JSON.stringify(payload)); // to be added once the child_process is attached
         }
         
     })
     .catch(function(err) {
+        console.log("loadResultsCOllection catch block")
         console.log(err);
         createLog.debug("************ INSIDE CATCH BLOCK of loadResultCollection **************** ");
         //throw err;
@@ -1053,8 +1262,8 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
                     // added sleep to introduce some delay and check inprogress message
                     //await new Promise(resolve => setTimeout(resolve, 10000));
                     var geneIDList = parsedJson['var_disc']['geneID'];
-                    rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList}};
-                    altRootFilter = { "fileID" : {$in: fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList} };
+                    rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList},'alt_cnt': {$ne:0}};
+                    altRootFilter = { "fileID" : {$in: fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList} ,'alt_cnt': {$ne:0}};
                 } else if ( parsedJson['var_disc']['region']) {
                     var fileIDList = await fetchSeqTypeList(db,parsedJson['seq_type']);
                     var region_req = parsedJson['var_disc']['region'];
@@ -1096,6 +1305,22 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
                     rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                     altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
                 }
+            } else if ( parsedJson['family']) {
+                var famLocalID = parsedJson['family']['famLocalID'];
+                // Code : 1- affected 2-unaffected
+                var famCode = {$in:[1,2]};
+                var famFileList = await fetchFamLocalList(db,famLocalID);
+                if ( parsedJson['family']['IndividualID']) {
+                    var indId = parsedJson['family']['IndividualID'];
+                    // restrict filter search based on IndividualID/fileID
+                    var famFileID = await fetchFamAnalysisFileID(db,famLocalID,indId);
+                    rootFilter = { "fileID" : famFileID, famLocalID: famCode, 'alt_cnt': {$ne:0}};
+                    altRootFilter = { "fileID" : famFileID, famLocalID : famCode, 'alt_cnt': {$ne:0}};
+                } else {
+                    rootFilter = { "fileID" : {$in:famFileList}, famLocalID: famCode, 'alt_cnt': {$ne:0}};
+                    altRootFilter = { "fileID" : {$in: famFileList}, famLocalID : famCode, 'alt_cnt': {$ne:0}};
+                }
+                
             } else {
                 rootFilter = { "fileID" : fileID };
                 altRootFilter = { "fileID" : fileID };
@@ -1320,6 +1545,8 @@ async function getSavedFilterCnt(db,collection,parsedJson, mapFilter,reqID,creat
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':savedFilterResult,status:"completed",processedTime:procTime,'req_type':'var_disc', 'hostId' : parsedJson['hostId'], 'centerId' : parsedJson['centerId']}});
         } else if ( parsedJson['trio'] ) {
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",'req_type' : 'trio',processedTime:procTime}});
+        } else if (parsedJson['family']) {
+            await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",'req_type' : 'family',processedTime:procTime}});
         } else {
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':savedFilterResult,status:"completed",processedTime:procTime}});
         }
@@ -1370,8 +1597,8 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
                 // top level query will be with fileID and geneID
                 var fileIDList = await fetchSeqTypeList(db,parsedJson['seq_type']);
                 var geneIDList = parsedJson['var_disc']['geneID'];
-                rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList}};
-                altRootFilter = { "fileID" : {$in: fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList} };
+                rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList},'alt_cnt': {$ne:0}};
+                altRootFilter = { "fileID" : {$in: fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList} ,'alt_cnt': {$ne:0}};
             } else if ( parsedJson['var_disc']['region']) {
                 var fileIDList = await fetchSeqTypeList(db,parsedJson['seq_type']);
 
@@ -1414,6 +1641,29 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
             } else {
                 rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
                 altRootFilter = { "fileID" : {$in: trioFileList}, 'trio_code' : trioCode, 'alt_cnt': {$ne:0}};
+            }
+            
+        } else if ( parsedJson['family']) {
+            var famLocalID = parsedJson['family']['famLocalID'];
+            // Code : 1- affected 2-unaffected
+            var famCode = {$in:[1,2]};
+            var famFileList = await fetchFamLocalList(db,famLocalID);
+            //console.log("Fetching the file ID list -- family")
+            //console.log(famFileList)
+            if ( parsedJson['family']['IndividualID']) {
+                var indId = parsedJson['family']['IndividualID'];
+                // restrict filter search based on IndividualID/fileID
+                var famFileID = await fetchFamAnalysisFileID(db,famLocalID,indId);
+                //console.log(famFileID)
+                rootFilter = { "fileID" : famFileID,  'alt_cnt': {$ne:0}};
+                rootFilter[famLocalID] = famCode;
+                altRootFilter = { "fileID" : famFileID, 'alt_cnt': {$ne:0}};
+                altRootFilter[famLocalID] = famCode;
+            } else {
+                rootFilter = { "fileID" : {$in:famFileList},  'alt_cnt': {$ne:0}};
+                rootFilter[famLocalID] = famCode;
+                altRootFilter = { "fileID" : {$in: famFileList}, 'alt_cnt': {$ne:0}};
+                altRootFilter[famLocalID] = famCode;
             }
             
         } else {
@@ -1647,6 +1897,8 @@ async function getCount(db,collection,parsedJson, mapFilter,reqID,createLog,asse
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",processedTime:procTime, 'req_type':'var_disc', 'hostId' : parsedJson['hostId'], 'centerId' : parsedJson['centerId']}});
         } else if ( parsedJson['trio']) {
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",'req_type' : 'trio',processedTime:procTime}});
+        } else if (parsedJson['family']) {
+            await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",'req_type' : 'family',processedTime:procTime}});
         } else {
             await db.collection(variantQueryCounts).updateOne({_id:reqID},{$set:{'result':result,status:"completed",processedTime:procTime}});
         }
@@ -1803,6 +2055,135 @@ async function resetCompHetCode(idxFileID,collection,createLog) {
     }
 }
 
+
+// Function to process the results specific to shared family variant analysis
+async function famVarResults(pid,projection,collection,resultCol,batch,retFilter,createLog,parsedJson,assemblyInfo,db,batchCnt,type = "done") {
+    try {
+        var defaultSort = {'var_key' : 1};
+        var resType = "requested";
+        var reqColl = db.collection(reqTrackCollection);
+
+        var hostInfo = {};
+        var timeField = new Date();
+        var specificAnnoObj = {"_id" : 0, "var_validate" : 0,"pid" : 0,"multi_allelic" : 0, "phred_polymorphism" : 0, "filter" : 0, "alt_cnt" : 0, "ref_depth" : 0, "alt_depth" : 0, "phred_genotype" : 0, "mapping_quality" : 0, "base_q_ranksum" : 0, "mapping_q_ranksum" : 0, "read_pos_ranksum" : 0, "strand_bias" : 0, "quality_by_depth" : 0, "fisher_strand" : 0, "vqslod" : 0, "gt_ratio" : 0, "ploidy" : 0, "somatic_state" : 0, "delta_pl" : 0, "stretch_lt_a" : 0, "stretch_lt_b" : 0, "fileID" : 0};
+
+        var commonAnnoObj = { "gene_annotations" : 1, "RNACentral" : 1, "regulatory_feature_consequences" : 1, "motif_feature_consequences" : 1 , "gnomAD" : 1, "phred_score" : 1, "CLNSIG" : 1, "GENEINFO" : 1 , "chr":1, "start_pos" : 1};
+
+        var specificAnno = Object.keys(specificAnnoObj);
+        var commonAnno = Object.keys(commonAnnoObj);
+
+        createLog.debug("famVarResults- Logging the filter")
+        createLog.debug(retFilter);
+        createLog.debug("ProcessID "+pid);
+
+        var logStream = await collection.find(retFilter).sort(defaultSort);
+        //console.log(retFilter);
+        //console.dir(retFilter,{"depth":null});
+        //logStream.project(projection); 
+        var docs = 0;
+
+        var timeField = new Date();
+        var bulkOps = [];
+        var loadHash = {};
+
+        var varGroup = 0;
+        var varCnt = 0;
+        var dataSet = {};
+        var fileAnnoArr = [];
+
+        while ( await logStream.hasNext() ) {
+            const doc = await logStream.next();
+            var clonedDoc = { ... doc};
+            var finalDoc = {};
+            var var_key = doc['var_key'];
+            //console.log("Loop "+ doc['var_key']);
+            ++docs;
+            createLog.debug("Writing document ..... "+docs);
+            //finalDoc['pid'] = pid;
+            //finalDoc['createdAt'] = timeField;
+
+            //console.log(varGroup);
+            //console.log(doc['var_key']);
+            if ( varGroup && doc['var_key'] != varGroup ) {
+                //console.log("new variant key");
+                //console.log(doc['var_key']);
+                // store the variants 
+                // prepare the filter
+                // clone the retrieved doc and add some fields
+                // document to be formatted.
+                finalDoc['var_key'] = varGroup;
+                // variant annotations
+                finalDoc['annotations'] = dataSet['annotations'];
+                // vcf annotations.
+                finalDoc['vcfAnno'] = fileAnnoArr; 
+                //console.log(finalDoc);
+                bulkOps.push(finalDoc);
+
+                varCnt =  0;
+                dataSet = {};
+                fileAnnoArr = [];
+            }
+            
+            
+            //console.log(`bulkops ${bulkOps.length} batch : ${batch}`);
+            if ( bulkOps.length === batch ) {
+                //createLog.debug(`loadResultCollection ${batchId}`);
+                //const res1 = await resultCol.bulkWrite(bulkOps);
+                //console.log("Calling result collection ------ famVarResults");
+                loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+                batchCnt++;
+                loadHash = {};
+                //batchId = batchCnt;
+                bulkOps = [];
+            } 
+
+            // variant processing
+
+            // storing the data related to the variant in the dataSet hash
+            var id = doc['_id'];
+            var fileID = doc['fileID'];
+            //console.log("variant print "+doc['var_key']);
+            dataSet['var_key'] = doc['var_key'];
+            dataSet[fileID] = 1;
+            var commonObj = lodash.omit(clonedDoc,specificAnno);
+            var vcfAnno = lodash.omit(clonedDoc,commonAnno);
+            fileAnnoArr.push(vcfAnno);
+            //console.log("Logging common annotations ------ ");
+            //console.log(commonObj);
+            //console.log("Logging vcf annotations ----");
+            //console.log(vcfAnno);
+            dataSet['annotations'] = commonObj;
+            varGroup = doc['var_key'];
+            //console.log("old variant key");
+            //console.log(varGroup);
+        }
+
+        // check & process the last batch of data
+        // check and add this later . To Do 
+        
+        if ( bulkOps.length > 0 ) {
+            //createLog.debug(`invoke result collection for batch ${batchId} last`);
+            //const res1 = await resultCol.bulkWrite(bulkOps);
+            type = "last";
+            loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
+        }
+
+        if ( ! docs ) {
+            reqColl.updateOne({'_id':pid},{$set:{'status':"no-variants"}});
+        }
+        createLog.debug("Documents written to results collection "+docs); 
+
+        /*if ( ! docs ) {
+            process.send({"count":"no_variants"});
+        }*/
+
+        return "logged-result";
+    } catch(err) {
+        throw err;
+    }
+}
+
+
 // Apply this in the result collection, based on pid
 async function trioScanCH(pid,filter,projection,resultCol,tr_code,createLog) {
     try {
@@ -1956,6 +2337,52 @@ async function fetchTrioFileID(db,trioLocalID,indId) {
         throw err;
     }
 }
+
+// Get the file ID corresponding to the family local ID and individual ID
+async function fetchFamAnalysisFileID(db,famLocalID,indId) {
+    try {
+        var query = {"_id" : famLocalID,"Status" : "Completed","fam_opts.individualID" : indId};
+        console.log(query);
+        var famFileID = "";
+        var res = await db.collection(famAnalysisColl).findOne(query,{projection:{'fam_opts.fileID.$':1,_id:0}});
+        if ( res ) {
+            famFileID = res['fam_opts'][0]['fileID'];
+        }
+        return famFileID;
+    } catch(err) {
+        throw err;
+    }
+}
+
+// Get the fileID list corresponding to the family Local ID
+async function fetchFamLocalList(db,famLocalID) {
+    try {
+        var fileIDList = [];
+        var query = {"_id" : famLocalID,"Status" : "Completed"};
+        //console.log(query);
+        var res = await db.collection(famAnalysisColl).find(query,{projection:{'fam_opts.fileID': 1}});
+        //var res = await db.collection(famAnalysisColl).find(query);
+        //console.log(res);
+        while ( await res.hasNext()) {
+            const doc = await res.next();
+            //console.log(doc);
+            if ( doc['fam_opts'] ) {
+                var famList = doc['fam_opts'];
+                for ( var idx in famList ) {
+                    var elem = famList[idx];
+                    if ( elem.fileID ) {
+                        fileIDList.push(elem.fileID);
+                    }
+                }
+            }
+        }
+        return fileIDList;
+    } catch(err) {
+        throw err;
+    }
+}
+
+
 // rel = "Proband" or "Father" or "Mother"
 async function fetchTrioRelFileID(db,trioLocalID,rel) {
     try {
@@ -1979,6 +2406,24 @@ async function fetchTrioBuildType(db,trioLocalID) {
         //console.log(res);
         if ( res ) {
             assembly = res['AssemblyType']
+        }
+        return assembly;
+    } catch(err) {
+        throw err;
+    }
+}
+
+async function fetchFamBuildType(db,famLocalID) {
+    try {
+        var query = {"_id" : famLocalID,"Status" : "Completed"};
+        var assembly = "";
+        //console.log("fetchFamBuildType")
+        //console.log(famAnalysisColl)
+        //console.log(query);
+        var res = await db.collection(famAnalysisColl).findOne(query,{projection:{'details.assemblyType': 1,_id:0}});
+        //console.log(res);
+        if ( res ) {
+            assembly = res['details']['assemblyType'];
         }
         return assembly;
     } catch(err) {
@@ -2181,6 +2626,54 @@ async function positionFilterRule(condHash) {
     }
 }
 
+// Workaround fix to include the lifted positions to the filter
+async function positionFilterVarDiscLift(condHash,regionMap,createLog) {
+    try {
+        var filterRule = {};
+        var altRule = condHash['add_rule_pos'];
+        var chr_pos = regionMap.split('-');
+        //console.log("Logging altRule inside positionFilterRule");
+        //console.log(altRule);
+        var start_pos; var stop_pos;
+        if ( altRule['start_pos']) {
+            //start_pos = altRule['start_pos'] || 0;
+            start_pos = parseInt(chr_pos[2]);
+        }
+        if ( altRule['stop_pos']) {
+            //stop_pos = altRule['stop_pos'] || 0;
+            stop_pos = parseInt(chr_pos[1]);
+        }
+        //filterRule['$and']  = [ {"chr" : condHash['rule']}, {'start_pos' : {$lte : start_pos}}, {'stop_pos' : {$gte : stop_pos}} ];
+        filterRule['$and']  = [ {"chr" : {"$eq":parseInt(chr_pos[0])}}, {'start_pos' : {$lte : start_pos}}, {'stop_pos' : {$gte : stop_pos}} ];
+        createLog.debug("Updated lifted filter rule below ");
+        createLog.debug(filterRule,{"depth":null});
+        return filterRule;
+    } catch(err) {
+        throw err;
+    }
+}
+
+async function fetchChrPosFilterRule(condHash,createLog) {
+    try {
+        var altRule = condHash['add_rule_pos'];
+        var start_pos; var stop_pos;
+        var region = "";
+        if ( altRule['start_pos']) {
+            start_pos = altRule['start_pos'] || 0;
+        }
+        if ( altRule['stop_pos']) {
+            stop_pos = altRule['stop_pos'] || 0;
+        }
+        // Why are we swapping : Chr based filters with region - UI/DB already swaps start and stop_pos. 
+        // We need to swap here as this result will be next sent to liftover.
+        region = condHash.rule.$eq + "-" + stop_pos + "-" + start_pos;
+        createLog.debug("Region is "+region);
+        return region;
+    } catch(err) {
+        throw err;
+    }
+}
+
 async function genePanelFilterRule(condHash,db,genePanelColl,createLog) {
     try {
         var gpCollObj = db.collection(genePanelColl);
@@ -2288,7 +2781,7 @@ async function altCntFilterRule(condHash,dbField) {
     }
 }
 
-async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
+async function logicalFilterProcess(db,parsedJson, mapFilter,createLog,regionMap=false) {
     try {
         //console.dir(parsedJson);
         createLog.debug("Inside logicalFilterProcess function");
@@ -2303,7 +2796,7 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
                 // top level query will be with fileID and geneID
                 var fileIDList = await fetchSeqTypeList(db,parsedJson['seq_type']);
                 var geneIDList = parsedJson['var_disc']['geneID'];
-                rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList}};
+                rootFilter = { "fileID" : {$in:fileIDList}, 'gene_annotations.gene_id' : {$in:geneIDList},'alt_cnt': {$ne:0}};
             } else if ( parsedJson['var_disc']['region']) {
                 var fileIDList = await fetchSeqTypeList(db,parsedJson['seq_type']);
                 var region_req = parsedJson['var_disc']['region'];
@@ -2367,6 +2860,25 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
             } else {
                 rootFilter = { "fileID" : {$in:trioFileList}, 'trio_code': trioCode, 'alt_cnt': {$ne:0}};
             }   
+        } else if ( parsedJson['family']) {
+            var famLocalID = parsedJson['family']['famLocalID'];
+            // Code : 1- affected 2-unaffected
+            var famCode = {$in:[1,2]};
+            var famFileList = await fetchFamLocalList(db,famLocalID);
+            if ( parsedJson['family']['IndividualID']) {
+                var indId = parsedJson['family']['IndividualID'];
+                // restrict filter search based on IndividualID/fileID
+                var famFileID = await fetchFamAnalysisFileID(db,famLocalID,indId);
+                //rootFilter = { "fileID" : famFileID, 'alt_cnt': {$ne:0}};
+                // don't exclude hom-ref variants
+                rootFilter = { "fileID" : famFileID};
+                rootFilter[famLocalID] = famCode;
+            } else {
+                //rootFilter = { "fileID" : {$in:famFileList}, 'alt_cnt': {$ne:0}};
+                // don't exclude hom-ref variants
+                rootFilter = { "fileID" : {$in:famFileList}};
+                rootFilter[famLocalID] = famCode;
+            }
         } else {
             //console.log("Inside the regular filters");
             rootFilter = { "fileID" : fileID };
@@ -2408,7 +2920,11 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
                     filterRule = await genePanelFilterRule(condHash,db,genePanelColl,createLog);
                 } else {
                     if ( condHash['add_rule_pos'] ) {
-                        filterRule = await positionFilterRule(condHash);
+                        if ( regionMap!= false ) {
+                            filterRule = await positionFilterVarDiscLift(condHash,regionMap,createLog);
+                        } else  {
+                            filterRule = await positionFilterRule(condHash);
+                        }
                     } else {
                         // check if formula is null or not. Based on this call another function that will process formula and create filter rule.
                         filterRule = await formulaFilterRule(condHash,dbField,createLog)
@@ -2548,6 +3064,40 @@ async function logicalFilterProcess(db,parsedJson, mapFilter,createLog) {
     }  
 }
 
+async function logicalFilterProcessRegion(db,parsedJson, mapFilter,createLog) {
+    try {
+        //console.dir(parsedJson);
+        createLog.debug("Inside logicalFilterProcess function");
+        var conditions = parsedJson['condition'];
+
+        var regions_map = [];
+        for ( var cIdx in conditions ) {
+            var filters1 = conditions[cIdx];
+            createLog.debug("filter1 size is "+filters1.length);
+            for ( var fIdx in filters1 ) {
+                var filterRule = {};
+                var filters = filters1[fIdx];
+                var condHash = filters['c'];
+                if ( condHash['add_rule_pos'] ) {
+                    // region contains chr-start_position-stop_position
+                    var region = await fetchChrPosFilterRule(condHash,createLog);
+                    createLog.debug("region is "+region);
+                    regions_map.push(region);
+                }
+
+            } // filters array
+        } // conditions array
+        createLog.debug(regions_map);
+        return regions_map;
+    } catch(err) {
+        //console.log(err);
+        createLog.debug("Logging an error in this function ");
+        createLog.debug(`${err}`);
+        throw err;
+    }
+}
+
+
 async function invokeTrioInheritRes(pid,resultCol,assemblyInfo,createLog,parsedJson,batch,type = "done") {
     try {
 
@@ -2618,8 +3168,8 @@ async function invokeTrioInheritResUpd(pid,resultCol,db,collection,assemblyInfo,
         var filter = {'pid':pid,'comp-het':1}
         var trioSort = {'gene_annotations.gene_id':1};
         var logStream = await resultCol.find(filter).sort(trioSort);
-        console.log(filter)
-        console.log(trioSort)
+        //console.log(filter)
+        //console.log(trioSort);
         //var logStream = await collection.find(filter).sort(trioSort);
         logStream.project({'comp-het':0, _id:0}); 
         var docs = 0;
@@ -2647,7 +3197,7 @@ async function invokeTrioInheritResUpd(pid,resultCol,db,collection,assemblyInfo,
             bulkOps.push(doc);
             if ( bulkOps.length === batch ) {
                 createLog.debug(`loadResultCollection ${batchCnt}`);
-                console.log(batchCnt)
+                //console.log(batchCnt)
                 //console.log("Calling loadResultCollection")
                 loadResultCollection(createLog,resultCol,type,pid,batchCnt,timeField,bulkOps,hostInfo,parsedJson,assemblyInfo,resType);
                 //console.log("Batch count is "+batchCnt);
@@ -2712,18 +3262,18 @@ async function genReqID(reqCollName,db,parsedJson) {
         // confirm if the pid does not exist
         var res = await reqColl.findOne({_id:pid});
         if ( res ) {
-            console.log("increment and insert")
+            //console.log("increment and insert")
             // if pid exists, increment pid and insert
             pid = pid + 1;
             await reqColl.insertOne({'_id':pid,'createdAt':timeField,'status': 'created'});
         } else {
-            console.log("just insert")
+            //console.log("just insert")
             await reqColl.insertOne({'_id':pid,'createdAt':timeField,'status': 'created'});
         }
-        console.log(res);
-        console.log("insert a doc with a incremented ID");
+        //console.log(res);
+        //console.log("insert a doc with a incremented ID");
     }
-    console.log(`Logging generated pid ${pid}`);
+    //console.log(`Logging generated pid ${pid}`);
     return pid;
 }
 
@@ -2794,6 +3344,22 @@ async function readFile(variantFile,varContLog) {
     }
 }
 
+// store the variant phenotype results which has the counts and annotations.
+async function storeVarPhenRes(pid,varPhen,resultCol) {
+    try {
+        var loadToDB = {};
+	    loadToDB['_id'] = pid;
+        var timeField = new Date();
+	    loadToDB['createdAt'] = timeField;
+	    loadToDB['documents'] = varPhen;
+        loadToDB['status'] = 'completed';
+	 
+	    await resultCol.insertOne(loadToDB);
+        return "success";
+    } catch(err) {
+        throw err;
+    }
+}
 function getArray (filterType) {
     var retVal = [];
     if ( filterType === "Zygosity" ) {

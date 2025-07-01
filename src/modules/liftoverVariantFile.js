@@ -182,7 +182,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
                 //console.log("LIFTOver Docker command is :");
                 
                 cmd = `docker run  --rm -v ${liftMntSrc}:${liftMntDst}   ${gatkImg}  gatk --java-options "-Xmx6G"  LiftoverVcf --CHAIN ${chainFile} --INPUT ${dockLoc} --OUTPUT ${dockOpFile}  --REFERENCE_SEQUENCE ${fastaFile} --REJECT ${rejectFile} --MAX_RECORDS_IN_RAM 1000`;
-                console.log(cmd)
+                //console.log(cmd)
             }
 
             //console.log("Logging command ");

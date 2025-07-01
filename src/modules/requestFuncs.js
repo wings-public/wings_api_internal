@@ -21,7 +21,7 @@ const closeSignalHandler = require('../controllers/execChildProcs.js').closeSign
 
 async function downloadData(reqUrl,serverLoc) {
     return new Promise ( (resolve,reject) => {
-        console.log(`Received request for Sample ${reqUrl}`);
+        //console.log(`Received request for Sample ${reqUrl}`);
         var options = { 'rejectUnauthorized': false, 'requestCert': true, 'agent': false };
         const req = https.get(reqUrl,options,async(response) => {
             if ( response.statusCode < 200 || response.statusCode >= 300 ) {
@@ -31,10 +31,10 @@ async function downloadData(reqUrl,serverLoc) {
             } else {
                 console.log("Check the response received from the request URL");
                 var parsed = url.parse(reqUrl);
-                console.log("************* Logging URL PARSE DATA *****************");
+                /*console.log("************* Logging URL PARSE DATA *****************");
                 console.log(parsed);
                 console.log(path.basename(parsed.href));
-                console.log("************* Logging URL PARSE DATA *****************");
+                console.log("************* Logging URL PARSE DATA *****************");*/
 
                 var contentD = response.headers['content-disposition'];
                 var reqFileName;

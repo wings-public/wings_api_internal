@@ -16,7 +16,7 @@
 #ReadLength: <Numeric>
 #DateOfSequencing:<YYYY/MM/DD> <Date_Validation>
 #PanelTypeName : Panel name has to be provided if Sequence Type is Panel<only these types are allowed>
-#IndividualGender:Male/Female/Unknown
+#IndividualSex:Male/Female/Unknown
 #########################################################################################################################################################
 # Optional Fields are listed below : 
 #IndividualFName:First Name of Individual <char>
@@ -25,7 +25,7 @@
 ##########################################################################################################################################################
 #Example Entry : TestPI,/datafiles/genomes/sample_name-12378.vcf.gz,vcf,sample description,hg19,deafness_lab2,christo_lab1,Research,test,testModel,40,WGS,39,2012/03/12,,,,Female,
 ###############################
-#PIName,FileLocation,FileType,Description,AssemblyType,SampleLocalID,IndLocalID,SampleType,SequenceMachine,SeqKitModel,SequencingCoverage,SequenceType,ReadLength,DateOfSequencing,PanelTypeName,IndividualFName,IndividualLName,IndividualGender,IndividualBirthDate
+#PIName,FileLocation,FileType,Description,AssemblyType,SampleLocalID,IndLocalID,SampleType,SequenceMachine,SeqKitModel,SequencingCoverage,SequenceType,ReadLength,DateOfSequencing,PanelTypeName,IndividualFName,IndividualLName,IndividualSex,IndividualBirthDate
 #Please enter the values below in csv format
 Gewty,/home/nsattanathan/VCF_data/9965.vcf,VCF,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,
 Gewty,/home/nsattanathan/VCF_data/9965.vcf,VCF,test description,hg19,deafness_lab1,ind_lab1,Research,Illumina,testModel,30,WES,20,2019/12/02,,fname,lname,Male,

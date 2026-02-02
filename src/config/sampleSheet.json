@@ -1,6 +1,6 @@
 {
     "required_fields" : ["piName","fileLoc","fileType","desc","assemblyType","sLocalID","indLocalID","sampleType","seqMc","seqMod","seqCov","seqType","readLgt","seqDate"],
-    "optional_fields" : ["panelName","indFName","indLName","indGender","indDOB"],
+    "optional_fields" : ["panelName","indFName","indLName","indSex","indDOB"],
     "validation" : {
                      "piName" : {"csv_field" : "PIName","data_type" : "char"},
                      "desc" : {"csv_field": "Description", "data_type" : "freetext"},
@@ -19,7 +19,7 @@
                      "seqDate" : { "csv_field" : "SeqDate", "data_type" : "date"},
                      "indFName" : { "csv_field" : "IndividualFName" , "data_type" : "char"},
                      "indLName" : { "csv_field" : "IndividualLName", "data_type" : "char"},
-                     "indGender" : { "csv_field" : "IndividualSex", "allowed_values" : ["Male","Female","Unknown"]},
+                     "indSex" : { "csv_field" : "IndividualSex", "allowed_values" : ["Male","Female","Unknown"]},
                      "indDOB" : { "csv_field" : "IndividualBirthDate", "data_type" : "date"}
                    }
 }
